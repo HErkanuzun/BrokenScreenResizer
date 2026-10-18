@@ -528,8 +528,8 @@ void IndirectDeviceContext::InitAdapter()
 
     IDDCX_ENDPOINT_VERSION version = {};
     version.Size = sizeof(version);
-    version.MajorVer = 1;
-    version.MinorVer = 3;
+    version.MajorVer = 2;
+    version.MinorVer = 0;
     caps.EndPointDiagnostics.pFirmwareVersion = &version;
     caps.EndPointDiagnostics.pHardwareVersion = &version;
 
@@ -563,15 +563,15 @@ void IndirectDeviceContext::OnAdapterInitFinished(NTSTATUS status)
     Log(L"Adaptör hazır: 0x%08X", status);
 }
 
-NTSTATUS IndirectDeviceContext::QueueAdd(UINT width, UINT height, UINT refresh, UINT* id)
+NTSTATUS IndirectDeviceContext::QueueAdd(UINT width, UINT height, UINT refresh, bool forceNew, UINT* id)
 {
     if (!ValidSize(width, height, refresh)) return STATUS_INVALID_PARAMETER;
 
     lock_guard<mutex> lock(m_Lock);
     if (!m_AdapterReady) return STATUS_DEVICE_NOT_READY;
 
-    // Aynı boyutta bir monitör zaten varsa onu döndür
-    for (UINT i = 0; i < BSRVDD_MAX_MONITORS; i++)
+    // Aynı boyutta bir monitör zaten varsa onu döndür (yeni monitör özellikle istenmediyse)
+    for (UINT i = 0; i < BSRVDD_MAX_MONITORS && !forceNew; i++)
     {
         auto& s = m_Slots[i];
         if (s.Used && (s.State == BSRVDD_STATE_ACTIVE || s.State == BSRVDD_STATE_PENDING) &&
@@ -747,13 +747,16 @@ void IndirectDeviceContext::HandleIoctl(WDFREQUEST request, size_t outputLength,
     {
         BSRVDD_ADD_IN* in = nullptr;
         BSRVDD_ADD_OUT* out = nullptr;
-        status = WdfRequestRetrieveInputBuffer(request, sizeof(BSRVDD_ADD_IN), (PVOID*)&in, nullptr);
+        size_t inLen = 0;
+        // Eski uygulamalar (protokol 1) Flags alanı olmadan 12 bayt gönderir
+        status = WdfRequestRetrieveInputBuffer(request, BSRVDD_ADD_IN_V1_SIZE, (PVOID*)&in, &inLen);
         if (!NT_SUCCESS(status)) break;
-        BSRVDD_ADD_IN args = *in; // METHOD_BUFFERED: giriş ve çıkış aynı tamponu paylaşır
+        BSRVDD_ADD_IN args = {}; // METHOD_BUFFERED: giriş ve çıkış aynı tamponu paylaşır, önce kopyalanır
+        memcpy(&args, in, inLen >= sizeof(BSRVDD_ADD_IN) ? sizeof(BSRVDD_ADD_IN) : BSRVDD_ADD_IN_V1_SIZE);
         status = WdfRequestRetrieveOutputBuffer(request, sizeof(BSRVDD_ADD_OUT), (PVOID*)&out, nullptr);
         if (!NT_SUCCESS(status)) break;
         UINT id = 0;
-        status = QueueAdd(args.Width, args.Height, args.RefreshRate, &id);
+        status = QueueAdd(args.Width, args.Height, args.RefreshRate, (args.Flags & BSRVDD_ADD_NEW) != 0, &id);
         if (NT_SUCCESS(status))
         {
             out->Id = id;

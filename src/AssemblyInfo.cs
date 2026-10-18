@@ -8,9 +8,9 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyCompany("HErkanuzun")]
 [assembly: AssemblyProduct("Broken Screen Resizer")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 HErkanuzun. MIT License.")]
-[assembly: AssemblyVersion("1.0.1.0")]
-[assembly: AssemblyFileVersion("1.0.1.0")]
-[assembly: AssemblyInformationalVersion("1.01")]
+[assembly: AssemblyVersion("1.6.0.0")]
+[assembly: AssemblyFileVersion("1.6.0.0")]
+[assembly: AssemblyInformationalVersion("1.6")]
 [assembly: NeutralResourcesLanguage("en")]
 [assembly: ComVisible(false)]
 
@@ -19,7 +19,8 @@ namespace BrokenScreenResizer
     static class AppInfo
     {
         public const string Name = "Broken Screen Resizer";
-        public const string Version = "1.01";   // AssemblyInformationalVersion ile aynı; sürüm etiketi v1.01
+        public const string Version = "1.6";    // AssemblyInformationalVersion ile aynı; sürüm etiketi v1.6
+        public const string Channel = "preview"; // "stable" = kararlı (main), "preview" = ön sürüm (develop)
         public const string Repo = "https://github.com/HErkanuzun/BrokenScreenResizer";
     }
 }

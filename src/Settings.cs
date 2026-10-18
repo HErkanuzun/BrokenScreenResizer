@@ -5,7 +5,7 @@ using System.IO;
 namespace BrokenScreenResizer
 {
     enum Edge { Left = 0, Top = 1, Right = 2, Bottom = 3 }   // değerler AppBar kenar kodlarıyla aynı
-    enum Mode { Driver = 0, Software = 1, Virtual = 2 }   // Driver: v0.6 ve öncesinden kalan ayarı tanımak için
+    enum Mode { Driver = 0, Software = 1, Virtual = 2, Split = 3 }   // Driver: v0.6 ve öncesinden kalan ayarı tanımak için; Split: Ekran Çoğaltıcı (v1.5)
 
     // Monitörün dört kenarından gizlenen (bozuk) şeritler, piksel cinsinden.
     // Kalan dikdörtgen "sağlam alan"dır; böylece ekranın herhangi bir dikdörtgen bölgesi kullanılabilir.
@@ -104,6 +104,21 @@ namespace BrokenScreenResizer
         public string Lang = "";
         public bool DriverWarp = false;
 
+        // Ekran Çoğaltıcı (v1.5): bir monitörü birden fazla sanal monitöre böler
+        public int Tab = 0;                        // 0 = bozuk ekran, 1 = Ekran Çoğaltıcı, 2 = Windows düzenlemeleri
+        public string SplitMonitor = "";           // bölünen monitörün yolu
+        public string SplitRegions = "";           // "x,y,w,h;..." monitör pikseli cinsinden
+        public float SplitDiag = 0;                // elle girilen köşegen (inç); 0 = monitör bilgisinden
+
+        // Windows düzenlemeleri (v1.6): monitör başına görev çubuğu kenarı
+        public bool TaskbarActive = false;
+        public string TaskbarSides = "";           // düzenlenen (henüz uygulanmamış olabilir): "monitörYolu=kenar|..."
+        public string TaskbarAppliedSides = "";    // uygulanan
+        public int TaskbarAlign = -1;              // simge hizası: 0 sol, 1 orta, -1 Windows'taki değer
+        public int TaskbarAppliedAlign = -1;
+        public bool TaskbarLabels = true, TaskbarAppliedLabels = true;
+        public int TbOrigLoc = -2, TbOrigMM = -2, TbOrigAl = -2;   // programdan önceki Windows değerleri (-2: saklanmadı, -1: yoktu)
+
         public const string AppName = "BrokenScreenResizer";
         public const string LegacyName = "EkranKurtar";   // v0.6 öncesi adı
 
@@ -152,13 +167,30 @@ namespace BrokenScreenResizer
                         case "edge": if (int.TryParse(v, out n) && n >= 0 && n <= 3) edge = n; break;
                         case "cut": if (int.TryParse(v, out n) && n >= 0) cut = n; break;
                         // sürücü modu v0.7'de kaldırıldı: yazılım moduna geçilir
-                        case "mode": s.Mode = ParseMode(v, Mode.Software); if (s.Mode == Mode.Driver) s.Mode = Mode.Software; break;
+                        case "mode": s.Mode = ParseMode(v, Mode.Software); if (s.Mode == Mode.Driver || s.Mode == Mode.Split) s.Mode = Mode.Software; break;
                         case "active": s.Active = v == "1"; break;
                         case "activeMode": s.ActiveMode = ParseMode(v, Mode.Driver); break;
                         case "driverWarp": s.DriverWarp = v == "1"; break;
                         case "lockCursor": s.LockCursor = v == "1"; break;
                         case "fixWindows": s.FixWindows = v == "1"; break;
                         case "lang": s.Lang = v; break;
+                        case "tab": if (int.TryParse(v, out n) && n >= 0 && n <= 2) s.Tab = n; break;
+                        case "taskbarActive": s.TaskbarActive = v == "1"; break;
+                        case "taskbarSides": s.TaskbarSides = v; break;
+                        case "taskbarAppliedSides": s.TaskbarAppliedSides = v; break;
+                        case "taskbarAlign": if (int.TryParse(v, out n) && n >= -1 && n <= 1) s.TaskbarAlign = n; break;
+                        case "taskbarAppliedAlign": if (int.TryParse(v, out n) && n >= -1 && n <= 1) s.TaskbarAppliedAlign = n; break;
+                        case "taskbarLabels": s.TaskbarLabels = v != "0"; break;
+                        case "taskbarAppliedLabels": s.TaskbarAppliedLabels = v != "0"; break;
+                        case "tbOrigLoc": if (int.TryParse(v, out n)) s.TbOrigLoc = n; break;
+                        case "tbOrigMM": if (int.TryParse(v, out n)) s.TbOrigMM = n; break;
+                        case "tbOrigAl": if (int.TryParse(v, out n)) s.TbOrigAl = n; break;
+                        case "splitMonitor": s.SplitMonitor = v; break;
+                        case "splitRegions": s.SplitRegions = v; break;
+                        case "splitDiag":
+                            float d;
+                            if (float.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out d) && d >= 0 && d < 1000) s.SplitDiag = d;
+                            break;
                     }
                 }
                 if (!hasCuts && edge >= 0)
@@ -174,7 +206,7 @@ namespace BrokenScreenResizer
         static Mode ParseMode(string v, Mode def)
         {
             int n;
-            return int.TryParse(v, out n) && n >= 0 && n <= 2 ? (Mode)n : def;
+            return int.TryParse(v, out n) && n >= 0 && n <= 3 ? (Mode)n : def;
         }
 
         public void Save()
@@ -192,7 +224,21 @@ namespace BrokenScreenResizer
                     "lockCursor=" + (LockCursor ? "1" : "0"),
                     "fixWindows=" + (FixWindows ? "1" : "0"),
                     "lang=" + Lang,
-                    "driverWarp=" + (DriverWarp ? "1" : "0")
+                    "driverWarp=" + (DriverWarp ? "1" : "0"),
+                    "tab=" + Tab,
+                    "splitMonitor=" + SplitMonitor,
+                    "splitRegions=" + SplitRegions,
+                    "splitDiag=" + SplitDiag.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "taskbarActive=" + (TaskbarActive ? "1" : "0"),
+                    "taskbarSides=" + TaskbarSides,
+                    "taskbarAppliedSides=" + TaskbarAppliedSides,
+                    "taskbarAlign=" + TaskbarAlign,
+                    "taskbarAppliedAlign=" + TaskbarAppliedAlign,
+                    "taskbarLabels=" + (TaskbarLabels ? "1" : "0"),
+                    "taskbarAppliedLabels=" + (TaskbarAppliedLabels ? "1" : "0"),
+                    "tbOrigLoc=" + TbOrigLoc,
+                    "tbOrigMM=" + TbOrigMM,
+                    "tbOrigAl=" + TbOrigAl
                 });
             }
             catch { }

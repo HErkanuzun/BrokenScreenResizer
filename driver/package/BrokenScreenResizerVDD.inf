@@ -10,7 +10,7 @@ Class=Display
 ClassVer=2.0
 Provider=%ManufacturerName%
 CatalogFile=BrokenScreenResizerVDD.cat
-DriverVer=10/18/2026,1.5.0.0
+DriverVer=10/18/2026,2.0.0.0
 
 [Manufacturer]
 %ManufacturerName%=Standard,NTamd64
