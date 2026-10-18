@@ -105,10 +105,19 @@ namespace BrokenScreenResizer
         public bool DriverWarp = false;
 
         // Ekran Çoğaltıcı (v1.5): bir monitörü birden fazla sanal monitöre böler
-        public int Tab = 0;                        // 0 = bozuk ekran, 1 = Ekran Çoğaltıcı
+        public int Tab = 0;                        // 0 = bozuk ekran, 1 = Ekran Çoğaltıcı, 2 = Windows düzenlemeleri
         public string SplitMonitor = "";           // bölünen monitörün yolu
         public string SplitRegions = "";           // "x,y,w,h;..." monitör pikseli cinsinden
         public float SplitDiag = 0;                // elle girilen köşegen (inç); 0 = monitör bilgisinden
+
+        // Windows düzenlemeleri (v1.6): monitör başına görev çubuğu kenarı
+        public bool TaskbarActive = false;
+        public string TaskbarSides = "";           // düzenlenen (henüz uygulanmamış olabilir): "monitörYolu=kenar|..."
+        public string TaskbarAppliedSides = "";    // uygulanan
+        public int TaskbarAlign = -1;              // simge hizası: 0 sol, 1 orta, -1 Windows'taki değer
+        public int TaskbarAppliedAlign = -1;
+        public bool TaskbarLabels = true, TaskbarAppliedLabels = true;
+        public int TbOrigLoc = -2, TbOrigMM = -2, TbOrigAl = -2;   // programdan önceki Windows değerleri (-2: saklanmadı, -1: yoktu)
 
         public const string AppName = "BrokenScreenResizer";
         public const string LegacyName = "EkranKurtar";   // v0.6 öncesi adı
@@ -165,7 +174,17 @@ namespace BrokenScreenResizer
                         case "lockCursor": s.LockCursor = v == "1"; break;
                         case "fixWindows": s.FixWindows = v == "1"; break;
                         case "lang": s.Lang = v; break;
-                        case "tab": if (int.TryParse(v, out n) && (n == 0 || n == 1)) s.Tab = n; break;
+                        case "tab": if (int.TryParse(v, out n) && n >= 0 && n <= 2) s.Tab = n; break;
+                        case "taskbarActive": s.TaskbarActive = v == "1"; break;
+                        case "taskbarSides": s.TaskbarSides = v; break;
+                        case "taskbarAppliedSides": s.TaskbarAppliedSides = v; break;
+                        case "taskbarAlign": if (int.TryParse(v, out n) && n >= -1 && n <= 1) s.TaskbarAlign = n; break;
+                        case "taskbarAppliedAlign": if (int.TryParse(v, out n) && n >= -1 && n <= 1) s.TaskbarAppliedAlign = n; break;
+                        case "taskbarLabels": s.TaskbarLabels = v != "0"; break;
+                        case "taskbarAppliedLabels": s.TaskbarAppliedLabels = v != "0"; break;
+                        case "tbOrigLoc": if (int.TryParse(v, out n)) s.TbOrigLoc = n; break;
+                        case "tbOrigMM": if (int.TryParse(v, out n)) s.TbOrigMM = n; break;
+                        case "tbOrigAl": if (int.TryParse(v, out n)) s.TbOrigAl = n; break;
                         case "splitMonitor": s.SplitMonitor = v; break;
                         case "splitRegions": s.SplitRegions = v; break;
                         case "splitDiag":
@@ -209,7 +228,17 @@ namespace BrokenScreenResizer
                     "tab=" + Tab,
                     "splitMonitor=" + SplitMonitor,
                     "splitRegions=" + SplitRegions,
-                    "splitDiag=" + SplitDiag.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    "splitDiag=" + SplitDiag.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "taskbarActive=" + (TaskbarActive ? "1" : "0"),
+                    "taskbarSides=" + TaskbarSides,
+                    "taskbarAppliedSides=" + TaskbarAppliedSides,
+                    "taskbarAlign=" + TaskbarAlign,
+                    "taskbarAppliedAlign=" + TaskbarAppliedAlign,
+                    "taskbarLabels=" + (TaskbarLabels ? "1" : "0"),
+                    "taskbarAppliedLabels=" + (TaskbarAppliedLabels ? "1" : "0"),
+                    "tbOrigLoc=" + TbOrigLoc,
+                    "tbOrigMM=" + TbOrigMM,
+                    "tbOrigAl=" + TbOrigAl
                 });
             }
             catch { }

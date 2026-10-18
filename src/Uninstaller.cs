@@ -77,6 +77,16 @@ namespace BrokenScreenResizer
                 report.Add(L.T("Ekranlar eski haline getirildi.", "Displays restored."));
             }
             catch (Exception ex) { left.Add(L.T("Ekran sıfırlama: ", "Display reset: ") + ex.Message); }
+            try
+            {
+                var s = Settings.Load();
+                if (s.TbOrigLoc != TaskbarTweaks.NotSaved)
+                {
+                    TaskbarTweaks.Restore(s);
+                    report.Add(L.T("Görev çubuğu eski haline getirildi.", "Taskbar restored."));
+                }
+            }
+            catch (Exception ex) { left.Add(L.T("Görev çubuğu: ", "Taskbar: ") + ex.Message); }
 
             // 2) başlangıç kaydı
             try
