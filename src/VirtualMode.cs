@@ -84,6 +84,27 @@ namespace EkranKurtar
 
         public const int WS_CHILD = 0x40000000, WS_VISIBLE = 0x10000000, MS_SHOWMAGNIFIEDCURSOR = 0x1;
 
+        // Ayna ve fare kancası iş parçacıkları, pencere kurtarma
+        public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        public const uint SWP_NOMOVE = 0x2, SWP_ASYNCWINDOWPOS = 0x4000, QS_ALLINPUT = 0x4FF, WM_QUIT = 0x12;
+        public const int GWL_EXSTYLE = -20, WS_EX_TOOLWINDOW = 0x80, WS_EX_NOACTIVATE = 0x08000000;
+        public const int DWMWA_CLOAKED = 14, SW_RESTORE = 9, SW_MAXIMIZE = 3;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MSG { public IntPtr hwnd; public uint message; public IntPtr wParam, lParam; public uint time; public Win.POINT pt; }
+        public delegate bool EnumWindowsProc(IntPtr h, IntPtr l);
+
+        [DllImport("user32.dll")] public static extern uint MsgWaitForMultipleObjects(uint n, IntPtr[] handles, bool waitAll, uint ms, uint mask);
+        [DllImport("user32.dll")] public static extern int GetMessage(out MSG m, IntPtr h, uint min, uint max);
+        [DllImport("user32.dll")] public static extern bool TranslateMessage(ref MSG m);
+        [DllImport("user32.dll")] public static extern IntPtr DispatchMessage(ref MSG m);
+        [DllImport("user32.dll")] public static extern bool PostThreadMessage(uint threadId, uint msg, IntPtr w, IntPtr l);
+        [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+        [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc proc, IntPtr l);
+        [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+        [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int index);
+        [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr h, int cmd);
+        [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr h, int attr, out int value, int size);
 
         public static DEVMODE NewDevMode()
         {
@@ -293,104 +314,196 @@ namespace EkranKurtar
     }
 
     // ------------------------------------------------------------------ Sanal monitör modunu yöneten sınıf
+    // Ayna çizimi ve fare kancası ayrı iş parçacıklarında çalışır; ana pencere ne yaparsa yapsın
+    // ayna akıcı kalır, fare de takılmaz.
     class VirtualMirror
     {
-        static bool magInit;
+        class Rects
+        {
+            public Rectangle Phys, Virt;
+            public int Fps;
+        }
 
         readonly string physGdi, virtGdi;
         readonly Edge edge;
         readonly int cut;
-        MirrorForm form;
-        Thread loop;
-        volatile bool running;
-        int fps = 60;
-        Rectangle physRect, virtRect;
+        volatile Rects rects;
+        volatile bool running, layoutChanged;
+        volatile IntPtr mirrorHwnd = IntPtr.Zero;
+        string startError;
+
+        Thread renderThread, hookThread;
+        readonly ManualResetEvent renderReady = new ManualResetEvent(false), hookReady = new ManualResetEvent(false);
+        uint hookThreadId;
         Win.LowLevelMouseProc hookProc;
         IntPtr hook = IntPtr.Zero;
+
         System.Windows.Forms.Timer winTimer;
-        readonly uint myPid = (uint)Process.GetCurrentProcess().Id;
 
         public VirtualMirror(string physGdi, string virtGdi, Edge edge, int cut)
         {
             this.physGdi = physGdi; this.virtGdi = virtGdi; this.edge = edge; this.cut = cut;
         }
 
-        bool ReadRects()
+        // Fiziksel monitörün (artık sadece ayna) ve sanal monitörün masaüstü koordinatları
+        public Rectangle PhysRect { get { var r = rects; return r != null ? r.Phys : Rectangle.Empty; } }
+        public Rectangle VirtRect { get { var r = rects; return r != null ? r.Virt : Rectangle.Empty; } }
+
+        Rects ReadRects()
         {
             var now = DisplayLayout.Capture();
             var p = DisplayLayout.Find(now, physGdi);
             var v = DisplayLayout.Find(now, virtGdi);
-            if (p == null || v == null || !p.Attached || !v.Attached) return false;
-            physRect = p.Rect;
-            virtRect = v.Rect;
-            fps = Math.Max(30, Math.Min(240, p.Freq > 1 ? p.Freq : 60));
-            return true;
+            if (p == null || v == null || !p.Attached || !v.Attached) return null;
+            var r = new Rects();
+            r.Phys = p.Rect;
+            r.Virt = v.Rect;
+            r.Fps = Math.Max(30, Math.Min(144, p.Freq > 1 ? p.Freq : 60));
+            return r;
         }
 
         public string Start()
         {
-            if (!ReadRects()) return L.T("Monitörler bulunamadı.", "Monitors not found.");
-            if (!magInit)
-            {
-                try { magInit = VNative.MagInitialize(); } catch { magInit = false; }
-                if (!magInit) return L.T("Windows Büyüteç API'si başlatılamadı.", "Could not start the Windows Magnification API.");
-            }
-            var good = Geo.Good(new Rectangle(0, 0, physRect.Width, physRect.Height), edge, cut);
-            var area = new Rectangle(good.X, good.Y, Math.Min(good.Width, virtRect.Width), Math.Min(good.Height, virtRect.Height));
-            form = new MirrorForm(physRect, area, virtRect);
-            form.Show();
-            if (!form.Ready) { Stop(); return L.T("Ayna penceresi oluşturulamadı.", "Could not create the mirror window."); }
+            rects = ReadRects();
+            if (rects == null) return L.T("Monitörler bulunamadı.", "Monitors not found.");
 
-            try { hookProc = Hook; using (var pr = Process.GetCurrentProcess()) using (var mod = pr.MainModule) hook = Win.SetWindowsHookEx(Win.WH_MOUSE_LL, hookProc, Win.GetModuleHandle(mod.ModuleName), 0); }
-            catch { hook = IntPtr.Zero; }
+            running = true;
+            renderThread = new Thread(RenderThread);
+            renderThread.IsBackground = true;
+            renderThread.Priority = ThreadPriority.AboveNormal;
+            renderThread.SetApartmentState(ApartmentState.STA);
+            renderThread.Start();
+            if (!renderReady.WaitOne(8000) || startError != null)
+            {
+                string e = startError ?? L.T("Ayna penceresi oluşturulamadı.", "Could not create the mirror window.");
+                Stop();
+                return e;
+            }
+
+            hookThread = new Thread(HookThread);
+            hookThread.IsBackground = true;
+            hookThread.Priority = ThreadPriority.Highest;
+            hookThread.Start();
+            hookReady.WaitOne(3000);
 
             winTimer = new System.Windows.Forms.Timer();
-            winTimer.Interval = 150;
+            winTimer.Interval = 200;
             winTimer.Tick += delegate { PullWindows(); };
             winTimer.Start();
+            PullWindows();
 
-            try { VNative.timeBeginPeriod(1); } catch { }
-            running = true;
-            loop = new Thread(RenderLoop);
-            loop.IsBackground = true;
-            loop.Priority = ThreadPriority.AboveNormal;
-            loop.Start();
             SystemEvents.DisplaySettingsChanged += OnDisplayChanged;
             return null;
         }
 
-        void RenderLoop()
+        // ---------------------------------------------------------------- Ayna (kendi iş parçacığı)
+        void RenderThread()
         {
-            var sw = Stopwatch.StartNew();
-            double next = 0;
-            bool pending = false;
-            while (running)
+            MirrorForm form = null;
+            bool mag = false;
+            try
             {
-                double frame = 1000.0 / fps;
-                if (sw.Elapsed.TotalMilliseconds >= next && !pending)
+                try { mag = VNative.MagInitialize(); } catch { mag = false; }
+                if (!mag)
                 {
-                    next = sw.Elapsed.TotalMilliseconds + frame;
-                    var f = form;
-                    if (f != null && f.IsHandleCreated)
-                    {
-                        pending = true;
-                        try { f.BeginInvoke((MethodInvoker)delegate { f.Frame(); pending = false; }); }
-                        catch { pending = false; }
-                    }
+                    startError = L.T("Windows Büyüteç API'si başlatılamadı.", "Could not start the Windows Magnification API.");
+                    return;
                 }
-                Thread.Sleep(1);
+                var r = rects;
+                var good = Geo.Good(new Rectangle(0, 0, r.Phys.Width, r.Phys.Height), edge, cut);
+                var area = new Rectangle(good.X, good.Y, Math.Min(good.Width, r.Virt.Width), Math.Min(good.Height, r.Virt.Height));
+                form = new MirrorForm(r.Phys, area, r.Virt);
+                form.Show();
+                if (!form.Ready)
+                {
+                    startError = L.T("Ayna penceresi oluşturulamadı.", "Could not create the mirror window.");
+                    return;
+                }
+                mirrorHwnd = form.Handle;
+                renderReady.Set();
+
+                try { VNative.timeBeginPeriod(1); } catch { }
+                var sw = Stopwatch.StartNew();
+                double next = 0, nextTop = 0;
+                while (running)
+                {
+                    Application.DoEvents();
+                    if (!running) break;
+
+                    if (layoutChanged)
+                    {
+                        layoutChanged = false;
+                        var nr = ReadRects();
+                        if (nr != null)
+                        {
+                            rects = nr;
+                            form.Bounds = nr.Phys;
+                            form.SetSource(nr.Virt);
+                        }
+                    }
+
+                    double now = sw.Elapsed.TotalMilliseconds;
+                    if (now >= next)
+                    {
+                        form.Frame();
+                        double cost = sw.Elapsed.TotalMilliseconds - now;
+                        // Çizim yavaşsa kare hızını kendiliğinden düşür (sistemi kilitlemesin)
+                        next = now + Math.Max(1000.0 / rects.Fps, cost * 2);
+                    }
+                    if (now >= nextTop)
+                    {
+                        // Başka "her zaman üstte" pencereler aynanın üstüne çıkmasın
+                        Win.SetWindowPos(form.Handle, VNative.HWND_TOPMOST, 0, 0, 0, 0,
+                            Win.SWP_NOSIZE | VNative.SWP_NOMOVE | Win.SWP_NOACTIVATE | VNative.SWP_ASYNCWINDOWPOS);
+                        nextTop = now + 1000;
+                    }
+
+                    int wait = (int)Math.Max(0, Math.Min(50, next - sw.Elapsed.TotalMilliseconds));
+                    VNative.MsgWaitForMultipleObjects(0, null, false, (uint)wait, VNative.QS_ALLINPUT);
+                }
+            }
+            catch (Exception ex)
+            {
+                if (startError == null && !renderReady.WaitOne(0)) startError = ex.Message;
+            }
+            finally
+            {
+                try { VNative.timeEndPeriod(1); } catch { }
+                mirrorHwnd = IntPtr.Zero;
+                if (form != null) { try { form.Close(); form.Dispose(); } catch { } }
+                if (mag) { try { VNative.MagUninitialize(); } catch { } }
+                renderReady.Set();
             }
         }
 
         void OnDisplayChanged(object s, EventArgs e)
         {
-            if (form == null || !form.IsHandleCreated) return;
-            form.BeginInvoke((MethodInvoker)delegate
+            layoutChanged = true;
+        }
+
+        // ---------------------------------------------------------------- Fare kancası (kendi iş parçacığı)
+        void HookThread()
+        {
+            hookThreadId = VNative.GetCurrentThreadId();
+            hookProc = Hook;
+            try
             {
-                if (!ReadRects()) return;
-                form.Bounds = physRect;
-                form.SetSource(virtRect);
-            });
+                using (var pr = Process.GetCurrentProcess())
+                using (var mod = pr.MainModule)
+                    hook = Win.SetWindowsHookEx(Win.WH_MOUSE_LL, hookProc, Win.GetModuleHandle(mod.ModuleName), 0);
+            }
+            catch { hook = IntPtr.Zero; }
+            hookReady.Set();
+            if (hook == IntPtr.Zero) return;
+
+            VNative.MSG msg;
+            while (VNative.GetMessage(out msg, IntPtr.Zero, 0, 0) > 0)
+            {
+                VNative.TranslateMessage(ref msg);
+                VNative.DispatchMessage(ref msg);
+            }
+            Win.UnhookWindowsHookEx(hook);
+            hook = IntPtr.Zero;
         }
 
         // Fare, sadece ayna olan fiziksel monitör alanına giremez
@@ -398,44 +511,79 @@ namespace EkranKurtar
         {
             if (nCode >= 0 && wParam.ToInt64() == Win.WM_MOUSEMOVE)
             {
+                var r = rects;
                 var info = (Win.MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(Win.MSLLHOOKSTRUCT));
-                if (physRect.Contains(info.pt.X, info.pt.Y))
+                if (r != null && r.Phys.Contains(info.pt.X, info.pt.Y))
                 {
                     Win.POINT cur;
-                    if (Win.GetCursorPos(out cur) && physRect.Contains(cur.X, cur.Y))
-                        Win.SetCursorPos(virtRect.X + virtRect.Width / 2, virtRect.Y + virtRect.Height / 2);
+                    if (Win.GetCursorPos(out cur) && r.Phys.Contains(cur.X, cur.Y))
+                        Win.SetCursorPos(r.Virt.X + r.Virt.Width / 2, r.Virt.Y + r.Virt.Height / 2);
                     return new IntPtr(1);
                 }
             }
             return Win.CallNextHookEx(hook, nCode, wParam, lParam);
         }
 
-        // Fiziksel monitöre (aynanın arkasına) düşen pencereleri sanal monitöre taşı
+        // ---------------------------------------------------------------- Pencereleri kurtar
+        // Fiziksel monitöre (aynanın arkasına, ulaşılamayan yere) düşen tüm pencereleri sanal monitöre taşır.
+        // Ekran Kurtar'ın kendi pencereleri de dahil.
         void PullWindows()
         {
-            IntPtr h = Win.GetForegroundWindow();
-            if (h == IntPtr.Zero || (form != null && h == form.Handle)) return;
-            uint pid;
-            Win.GetWindowThreadProcessId(h, out pid);
-            if (pid == myPid || Win.IsIconic(h)) return;
-            Win.RECT r;
-            if (!Win.GetWindowRect(h, out r)) return;
-            int cx = (r.Left + r.Right) / 2, cy = (r.Top + r.Bottom) / 2;
-            if (!physRect.Contains(cx, cy)) return;
-            int w = Math.Min(r.Right - r.Left, virtRect.Width), ht = Math.Min(r.Bottom - r.Top, virtRect.Height);
-            int x = virtRect.X + (virtRect.Width - w) / 2, y = virtRect.Y + (virtRect.Height - ht) / 2;
-            Win.SetWindowPos(h, IntPtr.Zero, x, y, w, ht, Win.SWP_NOZORDER | Win.SWP_NOACTIVATE);
+            var r = rects;
+            if (r == null) return;
+            IntPtr mirror = mirrorHwnd;
+            VNative.EnumWindows(delegate (IntPtr h, IntPtr l)
+            {
+                try { Rescue(h, mirror, r); } catch { }
+                return true;
+            }, IntPtr.Zero);
+        }
+
+        static void Rescue(IntPtr h, IntPtr mirror, Rects r)
+        {
+            if (h == mirror || !VNative.IsWindowVisible(h) || Win.IsIconic(h)) return;
+            int ex = VNative.GetWindowLong(h, VNative.GWL_EXSTYLE);
+            if ((ex & (VNative.WS_EX_TOOLWINDOW | VNative.WS_EX_NOACTIVATE)) != 0) return;
+            int cloaked;
+            if (VNative.DwmGetWindowAttribute(h, VNative.DWMWA_CLOAKED, out cloaked, 4) == 0 && cloaked != 0) return;
+            var cls = new StringBuilder(64);
+            Win.GetClassName(h, cls, 64);
+            string c = cls.ToString();
+            if (c == "Shell_TrayWnd" || c == "Shell_SecondaryTrayWnd" || c == "Progman" || c == "WorkerW") return;
+
+            Win.RECT wr;
+            if (!Win.GetWindowRect(h, out wr)) return;
+            int cx = (wr.Left + wr.Right) / 2, cy = (wr.Top + wr.Bottom) / 2;
+            if (!r.Phys.Contains(cx, cy)) return;
+
+            // Asenkron çağrılar: yanıt vermeyen başka bir program Ekran Kurtar'ı kilitleyemesin
+            const uint flags = Win.SWP_NOZORDER | Win.SWP_NOACTIVATE | VNative.SWP_ASYNCWINDOWPOS;
+            if (Win.IsZoomed(h))
+            {
+                // Büyütülmüş pencere: küçült, sanal monitöre taşı, orada yeniden büyüt
+                VNative.ShowWindowAsync(h, VNative.SW_RESTORE);
+                Win.SetWindowPos(h, IntPtr.Zero, r.Virt.X + r.Virt.Width / 10, r.Virt.Y + r.Virt.Height / 10,
+                                 r.Virt.Width * 8 / 10, r.Virt.Height * 8 / 10, flags);
+                VNative.ShowWindowAsync(h, VNative.SW_MAXIMIZE);
+                return;
+            }
+            int w = Math.Min(wr.Right - wr.Left, r.Virt.Width), ht = Math.Min(wr.Bottom - wr.Top, r.Virt.Height);
+            int x = r.Virt.X + (r.Virt.Width - w) / 2, y = r.Virt.Y + (r.Virt.Height - ht) / 2;
+            Win.SetWindowPos(h, IntPtr.Zero, x, y, w, ht, flags);
         }
 
         public void Stop()
         {
             running = false;
             SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;
-            if (loop != null) { loop.Join(500); loop = null; }
-            try { VNative.timeEndPeriod(1); } catch { }
-            if (hook != IntPtr.Zero) { Win.UnhookWindowsHookEx(hook); hook = IntPtr.Zero; }
             if (winTimer != null) { winTimer.Stop(); winTimer.Dispose(); winTimer = null; }
-            if (form != null) { form.Close(); form.Dispose(); form = null; }
+            if (hookThread != null)
+            {
+                if (hookThreadId != 0) VNative.PostThreadMessage(hookThreadId, VNative.WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+                hookThread.Join(2000);
+                hookThread = null;
+            }
+            if (renderThread != null) { renderThread.Join(3000); renderThread = null; }
         }
 
         // ------------------------------------------------------------------ Kurulum adımları

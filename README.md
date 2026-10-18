@@ -92,6 +92,14 @@ Kurulum günlüğü: `C:\ProgramData\EkranKurtar\driver\install.log`
 - Windows 10 veya 11 (sanal monitör yöntemi için Windows 10 1903 veya üstü, 64 bit)
 - .NET Framework 4.x (Windows'ta hazır gelir)
 
+## Sürüm geçmişi
+
+- **v1.4:** Sanal monitör modunda takılma ve "pencere görünüyor ama tıklanmıyor" sorunu düzeltildi. Ayna ve fare kilidi ayrı iş parçacıklarında çalışıyor. Fiziksel monitörün arkasında kalan pencereler (Ekran Kurtar dahil) otomatik olarak sanal monitöre taşınıyor. Program tekrar açılınca penceresi görünür yere geliyor. `--reset` çalışan programı düzgünce kapatıyor.
+- **v1.3:** Ekran Kurtar'ın kendi sanal ekran sürücüsü (IddCx). Virtual Display Driver indirmeye gerek yok; sürücü exe'nin içinde, ilk kullanımda sorup kuruluyor. `--uninstall-driver` ile kaldırılır.
+- **v1.2:** Sanal monitör yöntemi (Virtual Display Driver ile) ve NVIDIA Warp destekli sürücü modu. Yazılım modu varsayılan oldu.
+- **v1.1:** Yeni arayüz, görsel ayar, "Nasıl çalışır" paneli, 4 dil (Türkçe, English, 中文, Русский).
+- **v0.4:** İlk sürüm: sürücü modu ve yazılım modu.
+
 ## Lisans
 
 MIT
