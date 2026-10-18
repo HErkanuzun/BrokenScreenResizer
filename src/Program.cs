@@ -61,6 +61,15 @@ namespace EkranKurtar
         [STAThread]
         static void Main(string[] args)
         {
+            // Yönetici olarak açılan yardımcı çağrı: sanal monitöre çözünürlük ekle
+            if (args.Length == 3 && args[0] == "--vdd-res")
+            {
+                int w, h;
+                bool okW = int.TryParse(args[1], out w), okH = int.TryParse(args[2], out h);
+                Environment.Exit(okW && okH ? Vdd.AddResolution(w, h) : 3);
+                return;
+            }
+
             bool tray = false, reset = false;
             foreach (var a in args)
             {

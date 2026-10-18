@@ -11,7 +11,7 @@ if not exist "%CSC%" (
 if not exist bin mkdir bin
 "%CSC%" /nologo /codepage:65001 /target:winexe /optimize+ /platform:anycpu ^
   /win32icon:src\app.ico /win32manifest:src\app.manifest ^
-  /resource:src\app.ico,EkranKurtar.app.ico /resource:src\logo.png,EkranKurtar.logo.png /r:System.Windows.Forms.dll /r:System.Drawing.dll ^
+  /resource:src\app.ico,EkranKurtar.app.ico /resource:src\logo.png,EkranKurtar.logo.png /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.Xml.dll /r:System.Core.dll ^
   /out:bin\EkranKurtar.exe src\*.cs
 if errorlevel 1 (
   echo.

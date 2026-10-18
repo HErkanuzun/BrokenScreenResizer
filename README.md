@@ -20,16 +20,24 @@ Monitörünün sol, sağ, üst veya alt kenarındaki bozuk bölgeyi seçersin. E
 - **Nasıl çalışır paneli.** Her özelliği küçük animasyonlarla anlatır; bir ayarın üstüne gelince o ayarın ne yaptığını canlandırır.
 - **4 dil:** Türkçe, English, 中文, Русский.
 
-## İki yöntem
+## Üç yöntem
 
-| | Sürücü modu (önerilen) | Yazılım modu |
-|---|---|---|
-| Nasıl çalışır | Windows'un ekran yapılandırmasında masaüstünü sinyalin sağlam kısmına yerleştirir | Bozuk alanı siyah bir şeritle kapatır, pencereleri ve fareyi dışarıda tutar |
-| Özel tam ekran oyunlar | ✅ | ❌ (kenarlıksız pencere modu gerekir) |
-| Program kapalıyken | ✅ ayar kalır | ❌ program çalışmalı |
-| Uyumluluk | Ekran sürücüsüne bağlı | Her sistemde çalışır |
+| | Yazılım modu (önerilen) | Sürücü modu (deneysel) | Sanal monitör (deneysel) |
+|---|---|---|---|
+| Nasıl çalışır | Bozuk alanı görev çubuğu gibi rezerve edip kapatır; fareyi düşük seviyeli kancayla yönlendirir, taşan pencereleri geri iter | Windows ekran yapılandırmasında masaüstünü sinyalin sağlam kısmına yerleştirir; NVIDIA'da bu reddedilirse NVIDIA Warp ile dener | Sağlam alan boyutunda sanal bir monitör açar, fiziksel monitörün yerine koyar ve görüntüsünü Windows Büyüteç API'siyle sağlam alana 1:1 kopyalar |
+| Uyumluluk | Her sistem | Ekran kartı sürücüsüne bağlı. NVIDIA GeForce'ta Warp yeni sürücülerde genelde kapalı | [Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver) (ücretsiz, açık kaynak) gerekir |
+| Tam ekran oyunlar | Kenarlıksız pencere modunda | ✅ | Kenarlıksız pencere modunda; biraz gecikme ekler |
+| Program kapalıyken | Program çalışmalı | Ayar kalır | Program çalışmalı; kapanınca ekran düzeni eski haline döner |
 
-Önce sürücü modunu dene. Sürücün desteklemiyorsa program bunu algılar, otomatik geri alır ve yazılım moduna geçmeni önerir.
+Yazılım modu varsayılandır. Deneysel bir yöntem başarısız olursa program hiçbir şeyi değiştirmeden yazılım moduna geçmeyi önerir.
+
+### Sanal monitör yöntemi için kurulum
+
+1. [Virtual Display Driver sürümler sayfasından](https://github.com/VirtualDrivers/Virtual-Display-Driver/releases) kurulum dosyasını indirip kur.
+2. Ekran Kurtar'da **Sanal monitör** yöntemini seç ve **Uygula**'ya bas.
+3. Program gerekli çözünürlüğü sürücünün ayar dosyasına ekler (bir kez yönetici izni isteyebilir), sanal monitörü yerleştirir ve aynayı başlatır.
+
+Geri al dediğinde (ya da program kapandığında) ekran düzeni önceki haline döner ve sanal monitör kapatılır.
 
 ## Kullanım
 
@@ -83,10 +91,13 @@ MIT
 - **How it works panel** with small animations for every feature.
 - **4 languages:** Türkçe, English, 中文, Русский.
 
-## Two methods
+## Three methods
 
-- **Driver mode (recommended):** changes the Windows display configuration (`DisplayConfig` desktop image region) so the desktop is placed on the working part of the signal. Works with exclusive fullscreen games and persists when the app is closed. Depends on GPU driver support.
-- **Software mode:** covers the broken area with an AppBar, keeps windows and the cursor out of it. Works everywhere, but the app must keep running and games need borderless window mode.
+- **Software mode (recommended):** reserves and covers the broken area like a taskbar, redirects the cursor with a low-level mouse hook so it never enters the broken area, and pushes overflowing windows back. Works everywhere; the app must keep running and games need borderless window mode.
+- **Driver mode (experimental):** changes the Windows display configuration (`DisplayConfig` desktop image region) so the desktop is placed on the working part of the signal. NVIDIA drivers reject non-centered placement (error 31); in that case the app tries NVIDIA Warp (centered desktop + `NvAPI_GPU_SetScanoutWarping`), which is officially supported on professional GPUs and often disabled on recent GeForce drivers.
+- **Virtual monitor (experimental):** creates a virtual monitor the size of the working area using the free [Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver), puts it in place of the physical monitor and mirrors it 1:1 onto the working area with the Windows Magnification API. Adds a little latency; the app must keep running, and closing it restores the display layout.
+
+If an experimental method fails, nothing is changed and the app offers to switch to software mode.
 
 ## Usage
 

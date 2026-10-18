@@ -160,8 +160,10 @@ namespace EkranKurtar
             var s = FindScreen(gdiName);
             if (s == null) return false;
             screenBounds = s.Bounds;
+            screens = Screen.AllScreens;
             bar = new AppBarForm(screenBounds, edge, cut);
             bar.Show();
+            try { InstallHook(); } catch { hook = IntPtr.Zero; }
             timer = new Timer();
             timer.Interval = 30;
             timer.Tick += delegate { Tick(); };
@@ -178,6 +180,7 @@ namespace EkranKurtar
                 var s = FindScreen(gdiName);
                 if (s == null) return;
                 screenBounds = s.Bounds;
+                screens = Screen.AllScreens;
                 bar.Update(screenBounds);
             });
         }
@@ -185,6 +188,7 @@ namespace EkranKurtar
         public void Stop()
         {
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;
+            RemoveHook();
             if (timer != null) { timer.Stop(); timer.Dispose(); timer = null; }
             if (bar != null) { bar.Unregister(); bar.Close(); bar.Dispose(); bar = null; }
         }
@@ -197,24 +201,21 @@ namespace EkranKurtar
 
         int lastX = int.MinValue, lastY = int.MinValue;
 
-        // Fare kırık alana girerse:
+        // Fare kırık alana girmek isterse nereye gitmeli?
         //  - sağlam alandan geliyorsa ve ötede başka monitör varsa, kırık alanın üstünden atlayıp o monitöre geçer
         //  - başka yerden geliyorsa (ör. komşu monitörden) sağlam alanın kenarına konur
         // Böylece monitörler arasında ölü alan hissedilmez.
-        void PushCursor()
+        bool Redirect(int px, int py, int fromX, int fromY, out int x, out int y)
         {
-            Win.POINT p;
-            if (!Win.GetCursorPos(out p)) return;
+            x = px; y = py;
             var c = Geo.Cut(screenBounds, edge, cut);
+            if (!c.Contains(px, py)) return false;
             var g = Geo.Good(screenBounds, edge, cut);
-            if (!c.Contains(p.X, p.Y)) { lastX = p.X; lastY = p.Y; return; }
-
-            int x = Math.Max(g.Left, Math.Min(g.Right - 1, p.X));
-            int y = Math.Max(g.Top, Math.Min(g.Bottom - 1, p.Y));
-
-            if (g.Contains(lastX, lastY))
+            x = Math.Max(g.Left, Math.Min(g.Right - 1, px));
+            y = Math.Max(g.Top, Math.Min(g.Bottom - 1, py));
+            if (g.Contains(fromX, fromY))
             {
-                int bx = p.X, by = p.Y;
+                int bx = px, by = py;
                 switch (edge)
                 {
                     case Edge.Left: bx = c.Left - 1; break;
@@ -222,11 +223,60 @@ namespace EkranKurtar
                     case Edge.Top: by = c.Top - 1; break;
                     case Edge.Bottom: by = c.Bottom; break;
                 }
-                foreach (var s in Screen.AllScreens)
+                foreach (var s in screens)
                     if (s.DeviceName != gdiName && s.Bounds.Contains(bx, by)) { x = bx; y = by; break; }
             }
+            return true;
+        }
+
+        // Yedek: hook çalışmazsa zamanlayıcıyla kontrol
+        void PushCursor()
+        {
+            Win.POINT p;
+            if (!Win.GetCursorPos(out p)) return;
+            int x, y;
+            if (!Redirect(p.X, p.Y, lastX, lastY, out x, out y)) { lastX = p.X; lastY = p.Y; return; }
             Win.SetCursorPos(x, y);
             lastX = x; lastY = y;
+        }
+
+        // Asıl yöntem: düşük seviyeli fare kancası. Hareket olayı daha işlenmeden yakalanır,
+        // böylece imleç kırık alanda bir an bile görünmez.
+        Win.LowLevelMouseProc hookProc;
+        IntPtr hook = IntPtr.Zero;
+        Screen[] screens = new Screen[0];
+
+        void InstallHook()
+        {
+            hookProc = HookCallback;
+            using (var proc = System.Diagnostics.Process.GetCurrentProcess())
+            using (var mod = proc.MainModule)
+                hook = Win.SetWindowsHookEx(Win.WH_MOUSE_LL, hookProc, Win.GetModuleHandle(mod.ModuleName), 0);
+        }
+
+        void RemoveHook()
+        {
+            if (hook != IntPtr.Zero) { Win.UnhookWindowsHookEx(hook); hook = IntPtr.Zero; }
+        }
+
+        IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= 0 && LockCursor && wParam.ToInt64() == Win.WM_MOUSEMOVE)
+            {
+                var info = (Win.MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(Win.MSLLHOOKSTRUCT));
+                Win.POINT cur;
+                if (Win.GetCursorPos(out cur))
+                {
+                    int x, y;
+                    if (Redirect(info.pt.X, info.pt.Y, cur.X, cur.Y, out x, out y))
+                    {
+                        Win.SetCursorPos(x, y);
+                        lastX = x; lastY = y;
+                        return new IntPtr(1);   // asıl hareketi engelle
+                    }
+                }
+            }
+            return Win.CallNextHookEx(hook, nCode, wParam, lParam);
         }
 
         static readonly string[] SkipClasses = {

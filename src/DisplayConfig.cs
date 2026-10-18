@@ -152,7 +152,7 @@ namespace EkranKurtar
         }
 
         // cut = 0 => tam ekran (sıfırlama)
-        static Snapshot Build(int pi, Edge edge, int cut, out int actualCut, out string err)
+        static Snapshot Build(int pi, Edge edge, int cut, bool centered, out int actualCut, out string err)
         {
             actualCut = 0;
             err = null;
@@ -179,6 +179,12 @@ namespace EkranKurtar
                     case Edge.Right: nw = (W - cut) & ~7; R1 = nw; break;
                     case Edge.Top: nh = (H - cut) & ~1; T1 = H - nh; break;
                     case Edge.Bottom: nh = (H - cut) & ~1; B1 = nh; break;
+                }
+                if (centered)
+                {
+                    // NVIDIA'nın kabul ettiği biçim: aynı boyut, ortada
+                    L1 = (W - nw) / 2; R1 = L1 + nw;
+                    T1 = (H - nh) / 2; B1 = T1 + nh;
                 }
             }
             actualCut = (edge == Edge.Left || edge == Edge.Right) ? W - nw : H - nh;
@@ -217,7 +223,7 @@ namespace EkranKurtar
         }
 
         // Ayarı uygular (kaydetmeden). Sonra Keep() ya da Restore() çağrılmalı.
-        public static ApplyResult TryApply(string devicePath, Edge edge, int cut)
+        public static ApplyResult TryApply(string devicePath, Edge edge, int cut, bool centered)
         {
             var res = new ApplyResult();
             var log = new StringBuilder();
@@ -228,7 +234,7 @@ namespace EkranKurtar
 
             res.Original = Current();
             string err;
-            var s = Build(pi, edge, cut, out res.ActualCut, out err);
+            var s = Build(pi, edge, cut, centered, out res.ActualCut, out err);
             if (s == null) { res.Log = err; return res; }
             {
                 var dm = s.Modes[DeskIdx(s.Paths[pi])];
@@ -309,7 +315,7 @@ namespace EkranKurtar
             int pi = FindPath(devicePath);
             if (pi < 0) return 87;
             int c; string err;
-            var s = Build(pi, Edge.Left, 0, out c, out err);
+            var s = Build(pi, Edge.Left, 0, false, out c, out err);
             if (s == null) return 50;
             return Set(s, Ccd.SDC_APPLY | Ccd.SDC_SAVE | Ccd.SDC_ALLOW_CHANGES);
         }
@@ -318,18 +324,33 @@ namespace EkranKurtar
         public static string ResetAll()
         {
             var sb = new StringBuilder();
+            // sanal monitör düzeni ve NVIDIA warp da sıfırlanır
+            if (DisplayLayout.HasBackup) sb.AppendLine(L.T("Ekran düzeni: ", "Display layout: ") + DisplayLayout.Err(DisplayLayout.RestoreBackup()));
+            if (NvApi.Init() == NvApi.OK)
+                foreach (var m in GetMonitors())
+                {
+                    uint id;
+                    if (NvApi.DisplayId(m.GdiName, out id) == NvApi.OK && NvApi.Probe(id) == NvApi.OK) NvApi.ClearWarp(id);
+                }
             foreach (var m in GetMonitors())
                 if (m.IsModified)
                     sb.AppendLine(m.Name + ": " + Err(Reset(m.DevicePath)));
             return sb.Length == 0 ? L.T("Kırpılmış monitör yok.", "No cropped monitors.") : sb.ToString();
         }
 
-        public static bool IsApplied(string devicePath, Edge edge, int cut)
+        public static bool IsApplied(string devicePath, Edge edge, int cut, bool centered)
         {
             foreach (var m in GetMonitors())
             {
                 if (m.DevicePath != devicePath) continue;
                 if (!m.HasRegion) return false;
+                if (centered)
+                {
+                    bool h = edge == Edge.Left || edge == Edge.Right;
+                    int want = (h ? m.PathW : m.PathH) - cut;
+                    int got = h ? m.RegR - m.RegL : m.RegB - m.RegT;
+                    return Math.Abs(got - want) <= 8;
+                }
                 switch (edge)
                 {
                     case Edge.Left: return Math.Abs(m.RegL - cut) <= 8;

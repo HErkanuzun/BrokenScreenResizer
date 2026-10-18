@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Windows.Forms;
 using Microsoft.Win32;
@@ -15,6 +16,7 @@ namespace EkranKurtar
         readonly Settings cfg;
         List<MonitorInfo> monitors = new List<MonitorInfo>();
         Shield shield;
+        VirtualMirror mirror;
         readonly PreviewOverlay overlay = new PreviewOverlay();
         bool busy, loading;
         public bool ExitRequested;
@@ -30,7 +32,7 @@ namespace EkranKurtar
         FlatButton btnMinus, btnPlus, btnApply, btnRevert, btnReset;
         Label lblValue;
         Toggle tPreview, tLock, tFix, tStartup;
-        ModeCard cardDriver, cardSoft;
+        ModeCard cardDriver, cardSoft, cardVirtual;
         StatusBox status;
         Explainer explainer;
 
@@ -158,15 +160,25 @@ namespace EkranKurtar
             secMethod = Section(L.T("Yöntem", "Method"));
             cardDriver = Add(new ModeCard());
             cardDriver.Title = L.T("Sürücü modu", "Driver mode");
-            cardDriver.Badge = L.T("Önerilen", "Recommended");
-            cardDriver.Desc = L.T("Windows monitörü daha küçük sanar. Tam ekran ve oyunlar dahil her şey sadece sağlam alanı kullanır.",
-                                  "Windows sees a smaller monitor. Fullscreen and games only use the working area.");
+            cardDriver.Badge = L.T("Deneysel", "Experimental");
+            cardDriver.BadgeColor = Theme.Warn;
+            cardDriver.Desc = L.T("Windows monitörü daha küçük sanar. Bazı ekran kartı sürücüleri (ör. NVIDIA) desteklemez.",
+                                  "Windows sees a smaller monitor. Some GPU drivers (e.g. NVIDIA) don't support it.");
             cardDriver.Picked += delegate { cfg.Mode = Mode.Driver; cfg.Save(); UpdateState(); };
             cardSoft = Add(new ModeCard());
             cardSoft.Title = L.T("Yazılım modu", "Software mode");
+            cardSoft.Badge = L.T("Önerilen", "Recommended");
             cardSoft.Desc = L.T("Bozuk alanı kapatır, pencereleri ve fareyi dışarıda tutar. Her sistemde çalışır.",
                                 "Covers the broken area and keeps windows and the mouse out. Works everywhere.");
             cardSoft.Picked += delegate { cfg.Mode = Mode.Software; cfg.Save(); UpdateState(); };
+
+            cardVirtual = Add(new ModeCard());
+            cardVirtual.Title = L.T("Sanal monitör", "Virtual monitor");
+            cardVirtual.Badge = L.T("Deneysel", "Experimental");
+            cardVirtual.BadgeColor = Theme.Warn;
+            cardVirtual.Desc = L.T("Sağlam alan boyutunda sanal bir monitör açıp görüntüsünü buraya kopyalar. Ücretsiz Virtual Display Driver gerekir.",
+                                   "Creates a virtual monitor the size of the working area and mirrors it here. Needs the free Virtual Display Driver.");
+            cardVirtual.Picked += delegate { cfg.Mode = Mode.Virtual; cfg.Save(); UpdateState(); };
 
             tLock = Add(new Toggle(L.T("Fareyi bozuk alana sokma", "Keep the mouse out of the broken area")));
             tLock.Checked = cfg.LockCursor;
@@ -195,7 +207,7 @@ namespace EkranKurtar
             Explain(tPreview, 0); Explain(tLock, 0);
             Explain(cardDriver, 1);
             Explain(segMonitor, 2);
-            Explain(cardSoft, 3); Explain(tFix, 3);
+            Explain(cardSoft, 3); Explain(tFix, 3); Explain(cardVirtual, 1);
             Explain(btnApply, 4); Explain(btnRevert, 4); Explain(btnReset, 4);
             explainer.Running = Visible;
 
@@ -239,10 +251,11 @@ namespace EkranKurtar
             tPreview.SetBounds(x0, y, w, P(26)); y += P(26) + P(20);
 
             secMethod.Location = new Point(x0, y); y += P(22);
-            int cw = (w - P(14)) / 2;
-            int ch = Math.Max(P(104), Math.Max(cardDriver.Measure(cw), cardSoft.Measure(cw)));
-            cardDriver.SetBounds(x0, y, cw, ch);
-            cardSoft.SetBounds(x0 + cw + P(14), y, cw, ch);
+            int gap = P(10), cw = (w - gap * 2) / 3;
+            int ch = Math.Max(P(118), Math.Max(cardVirtual.Measure(cw), Math.Max(cardDriver.Measure(cw), cardSoft.Measure(cw))));
+            cardSoft.SetBounds(x0, y, cw, ch);
+            cardDriver.SetBounds(x0 + cw + gap, y, cw, ch);
+            cardVirtual.SetBounds(x0 + (cw + gap) * 2, y, w - (cw + gap) * 2, ch);
             y += ch + P(12);
 
             bool soft = cfg.Mode == Mode.Software;
@@ -301,6 +314,9 @@ namespace EkranKurtar
         {
             loading = true;
             monitors = DisplayConfig.GetMonitors();
+            string vdd = null;
+            try { vdd = Vdd.FindGdi(); } catch { }
+            if (vdd != null) monitors.RemoveAll(x => x.GdiName == vdd);
             var names = new string[monitors.Count];
             int sel = -1;
             for (int i = 0; i < monitors.Count; i++)
@@ -384,8 +400,10 @@ namespace EkranKurtar
             preview.Applied = cfg.Active || (m != null && m.IsModified);
             cardDriver.Enabled = editable;
             cardSoft.Enabled = editable;
+            cardVirtual.Enabled = editable;
             cardDriver.Selected = cfg.Mode == Mode.Driver;
             cardSoft.Selected = cfg.Mode == Mode.Software;
+            cardVirtual.Selected = cfg.Mode == Mode.Virtual;
             tPreview.Enabled = editable;
             btnApply.Enabled = editable && m != null;
             btnRevert.Enabled = !busy && (cfg.Active || (m != null && m.IsModified));
@@ -395,6 +413,12 @@ namespace EkranKurtar
                 status.Kind = StatusKind.Active;
                 status.Text = L.T("Sürücü modu etkin. Windows bu monitörü küçük ekran olarak görüyor. Program kapansa da ayar kalır.",
                                   "Driver mode active. Windows sees this monitor as a smaller screen. Stays even if the app is closed.");
+            }
+            else if (cfg.Active && cfg.ActiveMode == Mode.Virtual)
+            {
+                status.Kind = StatusKind.Active;
+                status.Text = L.T("Sanal monitör modu etkin. Program tepside çalışmalı; kapatılırsa ekran düzeni eski haline döner.",
+                                  "Virtual monitor mode active. The app must keep running; closing it restores the display layout.");
             }
             else if (cfg.Active)
             {
@@ -439,23 +463,71 @@ namespace EkranKurtar
             busy = true;
             UpdateState();
             Cursor = Cursors.WaitCursor;
-            ApplyResult res;
-            try { res = DisplayConfig.TryApply(m.DevicePath, cfg.Edge, cfg.Cut); }
-            finally { Cursor = Cursors.Default; }
+            try
+            {
+                if (cfg.Mode == Mode.Driver) ApplyDriver(m);
+                else ApplyVirtual(m);
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+                busy = false;
+                RefreshMonitors();
+            }
+        }
+
+        // Yöntem başarısız olunca yazılım modunu öner
+        void OfferSoftware(string why, string log)
+        {
+            busy = false;
+            bool sw = MsgDialog.Ask(this, why + "\n\n" + L.T("Yazılım moduyla uygulansın mı?", "Apply with software mode instead?") +
+                (string.IsNullOrEmpty(log) ? "" : "\n\n" + log.TrimEnd()),
+                L.T("Yazılım moduyla uygula", "Apply with software mode"), L.T("Kapat", "Close"));
+            if (!sw) return;
+            cfg.Mode = Mode.Software;
+            cfg.Save();
+            BeginInvoke((MethodInvoker)ApplyClicked);
+        }
+
+        bool Confirm(string gdi)
+        {
+            using (var dlg = new ConfirmDialog(SafeScreenRect(gdi)))
+                return dlg.ShowDialog() == DialogResult.OK;
+        }
+
+        // ---------------- 2) Sürücü modu: önce standart yöntem, olmazsa NVIDIA warp
+        void ApplyDriver(MonitorInfo m)
+        {
+            var res = DisplayConfig.TryApply(m.DevicePath, cfg.Edge, cfg.Cut, false);
+            string log = res.Log;
+            bool warp = false;
+            uint nid = 0;
+
+            if (!res.Ok && NvApi.DisplayId(m.GdiName, out nid) == NvApi.OK)
+            {
+                log += "\nNVIDIA warp: ";
+                int pr = NvApi.Probe(nid);
+                log += NvApi.Err(pr) + "\n";
+                if (pr == NvApi.OK)
+                {
+                    res = DisplayConfig.TryApply(m.DevicePath, cfg.Edge, cfg.Cut, true);
+                    log += res.Log;
+                    if (res.Ok)
+                    {
+                        warp = SetWarp(nid, ref log);
+                        if (!warp) { DisplayConfig.Restore(res.Original); res.Ok = false; }
+                    }
+                }
+            }
 
             if (!res.Ok)
             {
-                busy = false;
-                RefreshMonitors();
-                MsgDialog.Show(this, res.Log + "\n" + L.T("Yazılım modunu deneyebilirsin.", "You can try software mode instead."), true);
+                OfferSoftware(L.T("Ekran kartı sürücün bu yöntemi desteklemiyor. Hiçbir şey değişmedi.",
+                                  "Your GPU driver does not support this method. Nothing was changed."), log);
                 return;
             }
 
-            bool keep;
-            using (var dlg = new ConfirmDialog(SafeScreenRect(m.GdiName)))
-                keep = dlg.ShowDialog() == DialogResult.OK;
-
-            if (keep)
+            if (Confirm(m.GdiName))
             {
                 int r = DisplayConfig.Keep(res.Applied);
                 if (r == 0)
@@ -463,18 +535,124 @@ namespace EkranKurtar
                     cfg.Cut = res.ActualCut;
                     cfg.Active = true;
                     cfg.ActiveMode = Mode.Driver;
+                    cfg.DriverWarp = warp;
                     cfg.Save();
+                    return;
                 }
-                else
-                {
-                    DisplayConfig.Restore(res.Original);
-                    MsgDialog.Show(this, L.T("Kaydedilemedi: ", "Could not save: ") + DisplayConfig.Err(r), true);
-                }
+                MsgDialog.Show(this, L.T("Kaydedilemedi: ", "Could not save: ") + DisplayConfig.Err(r), true);
             }
-            else DisplayConfig.Restore(res.Original);
+            if (warp) NvApi.ClearWarp(nid);
+            DisplayConfig.Restore(res.Original);
+        }
 
-            busy = false;
-            RefreshMonitors();
+        bool SetWarp(uint nid, ref string log)
+        {
+            NvApi.ScanoutInfo si;
+            int sr = NvApi.Scanout(nid, out si);
+            if (sr != NvApi.OK) { log += "Scanout: " + NvApi.Err(sr) + "\n"; return false; }
+            var src = si.sourceDesktopRect;
+            var dst = NvApi.Target(cfg.Edge, src.W, src.H, (int)si.targetDisplayWidth, (int)si.targetDisplayHeight);
+            log += "Warp: " + src.W + "x" + src.H + " -> " + dst.X + "," + dst.Y + " (" + si.targetDisplayWidth + "x" + si.targetDisplayHeight + ")\n";
+            bool sticky;
+            int wr = NvApi.SetWarp(nid, src, dst, out sticky);
+            log += "SetWarp: " + NvApi.Err(wr) + "\n";
+            return wr == NvApi.OK;
+        }
+
+        // ---------------- 3) Sanal monitör modu
+        void ApplyVirtual(MonitorInfo m)
+        {
+            if (!Vdd.Installed)
+            {
+                busy = false;
+                if (MsgDialog.Ask(this, L.T(
+                        "Bu yöntem ücretsiz ve açık kaynaklı Virtual Display Driver'ı gerektirir. Kurulumdan sonra bu düğmeye tekrar bas.",
+                        "This method needs the free, open-source Virtual Display Driver. Press this button again after installing it."),
+                        L.T("İndirme sayfasını aç", "Open download page"), L.T("Kapat", "Close")))
+                    try { Process.Start(Vdd.DownloadUrl); } catch { }
+                return;
+            }
+
+            bool h = Horizontal;
+            int vw = h ? (FullW(m) - cfg.Cut) & ~1 : FullW(m);
+            int vh = h ? FullH(m) : (FullH(m) - cfg.Cut) & ~1;
+            int realCut = h ? FullW(m) - vw : FullH(m) - vh;
+
+            // 1) sanal monitöre bu çözünürlüğü ekle
+            string vg = Vdd.FindGdi();
+            if (vg == null || !Vdd.HasMode(vg, vw, vh))
+            {
+                int ar = Vdd.AddResolutionElevated(vw, vh);
+                if (ar == 2 || ar == 3)
+                {
+                    MsgDialog.Show(this, (ar == 2
+                        ? L.T("Sanal monitör ayar dosyası düzenlenemedi (yönetici izni gerekli).", "Could not edit the virtual monitor settings (administrator permission needed).")
+                        : L.T("Sanal monitör ayar dosyası bulunamadı: ", "Virtual monitor settings file not found: ") + Vdd.ConfigFile), true);
+                    return;
+                }
+                Vdd.SendCommand("RELOAD_DRIVER");
+                if (!Vdd.WaitForMode(vw, vh, 12000))
+                {
+                    MsgDialog.Show(this, L.T("Sanal monitör yeni çözünürlüğü yüklemedi. Bilgisayarı yeniden başlatıp tekrar dene.",
+                                             "The virtual monitor did not load the new resolution. Restart the computer and try again."), true);
+                    return;
+                }
+                vg = Vdd.FindGdi();
+            }
+
+            // 2) ekran düzenini yedekle ve sanal monitörü fiziksel monitörün yerine koy
+            if (!DisplayLayout.HasBackup) BackupWithoutVirtual(vg);
+            int lr = VirtualMirror.Arrange(m.GdiName, vg, vw, vh);
+            if (lr != 0)
+            {
+                DisplayLayout.RestoreBackup();
+                OfferSoftware(L.T("Ekran düzeni değiştirilemedi: ", "Could not change the display layout: ") + DisplayLayout.Err(lr), null);
+                return;
+            }
+            Pause(1200);
+
+            // 3) aynayı başlat
+            var mirror = new VirtualMirror(m.GdiName, vg, cfg.Edge, realCut);
+            string err = mirror.Start();
+            if (err != null)
+            {
+                DisplayLayout.RestoreBackup();
+                OfferSoftware(err, null);
+                return;
+            }
+
+            if (Confirm(m.GdiName))
+            {
+                StopMirror();
+                this.mirror = mirror;
+                cfg.Cut = realCut;
+                cfg.Active = true;
+                cfg.ActiveMode = Mode.Virtual;
+                cfg.Save();
+                return;
+            }
+            mirror.Stop();
+            DisplayLayout.RestoreBackup();
+        }
+
+        // Geri alınca sanal monitör de kapansın (fazladan "hayalet" monitör kalmasın)
+        static void BackupWithoutVirtual(string vg)
+        {
+            var cap = DisplayLayout.Capture();
+            var ve = DisplayLayout.Find(cap, vg);
+            if (ve != null) ve.Attached = false;
+            DisplayLayout.SaveBackup(cap);
+        }
+
+        static void Pause(int ms)
+        {
+            var sw = Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < ms) { Application.DoEvents(); System.Threading.Thread.Sleep(30); }
+        }
+
+        void StopMirror()
+        {
+            if (mirror != null) { mirror.Stop(); mirror = null; }
         }
 
         void RevertClicked()
@@ -482,11 +660,23 @@ namespace EkranKurtar
             var m = Selected;
             if (cfg.Active && cfg.ActiveMode == Mode.Software) StopShield();
 
+            if (cfg.Active && cfg.ActiveMode == Mode.Virtual)
+            {
+                StopMirror();
+                int vr = DisplayLayout.RestoreBackup();
+                if (vr != 0) MsgDialog.Show(this, L.T("Ekran düzeni geri yüklenemedi: ", "Could not restore the display layout: ") + DisplayLayout.Err(vr), true);
+            }
+
             string path = cfg.Active ? cfg.MonitorPath : (m != null ? m.DevicePath : "");
             bool needDriverReset = (cfg.Active && cfg.ActiveMode == Mode.Driver) || (m != null && m.IsModified);
             if (needDriverReset && path != "")
             {
                 busy = true;
+                if (cfg.DriverWarp && m != null)
+                {
+                    uint nid;
+                    if (NvApi.DisplayId(m.GdiName, out nid) == NvApi.OK) NvApi.ClearWarp(nid);
+                }
                 int r = DisplayConfig.Reset(path);
                 busy = false;
                 if (r != 0)
@@ -495,6 +685,7 @@ namespace EkranKurtar
                             "You can set the recommended resolution in Windows Display Settings."), true);
             }
             cfg.Active = false;
+            cfg.DriverWarp = false;
             cfg.Save();
             RefreshMonitors();
         }
@@ -502,8 +693,10 @@ namespace EkranKurtar
         void EmergencyReset()
         {
             StopShield();
+            StopMirror();
             string log = DisplayConfig.ResetAll();
             cfg.Active = false;
+            cfg.DriverWarp = false;
             cfg.Save();
             RefreshMonitors();
             MsgDialog.Show(this, log, false);
@@ -531,28 +724,76 @@ namespace EkranKurtar
             if (shield != null) { shield.Stop(); shield = null; }
         }
 
+        // Program açılışında önceki etkin ayarı geri getirir
         public void RestoreActive()
         {
             if (!cfg.Active) return;
             MonitorInfo target = null;
             foreach (var m in monitors) if (m.DevicePath == cfg.MonitorPath) target = m;
-            if (target == null) { Raise(L.T("Ayarlı monitör bağlı değil.", "The configured monitor is not connected.")); return; }
+            if (target == null && !(cfg.ActiveMode == Mode.Virtual && DisplayLayout.HasBackup))
+            {
+                Raise(L.T("Ayarlı monitör bağlı değil.", "The configured monitor is not connected."));
+                return;
+            }
 
             if (cfg.ActiveMode == Mode.Software)
             {
                 if (!StartShield(target.GdiName)) Raise(L.T("Yazılım modu başlatılamadı.", "Could not start software mode."));
                 return;
             }
-            if (DisplayConfig.IsApplied(cfg.MonitorPath, cfg.Edge, cfg.Cut)) return;
 
-            var res = DisplayConfig.TryApply(cfg.MonitorPath, cfg.Edge, cfg.Cut);
-            if (res.Ok && DisplayConfig.Keep(res.Applied) == 0) Raise(L.T("Ekran ayarı yeniden uygulandı.", "Display setting re-applied."));
-            else
+            if (cfg.ActiveMode == Mode.Virtual)
             {
-                if (res.Original != null && res.Applied != null) DisplayConfig.Restore(res.Original);
-                Raise(L.T("Ekran ayarı yeniden uygulanamadı. Uygulamayı açıp tekrar dene.", "Could not re-apply. Open the app and try again."));
+                RestoreVirtual();
+                return;
             }
+
+            bool ok = DisplayConfig.IsApplied(cfg.MonitorPath, cfg.Edge, cfg.Cut, cfg.DriverWarp);
+            if (!ok)
+            {
+                var res = DisplayConfig.TryApply(cfg.MonitorPath, cfg.Edge, cfg.Cut, cfg.DriverWarp);
+                ok = res.Ok && DisplayConfig.Keep(res.Applied) == 0;
+                if (!ok && res.Original != null && res.Applied != null) DisplayConfig.Restore(res.Original);
+            }
+            if (ok && cfg.DriverWarp)
+            {
+                uint nid; string log = "";
+                ok = NvApi.DisplayId(target.GdiName, out nid) == NvApi.OK && SetWarp(nid, ref log);
+            }
+            if (!ok) Raise(L.T("Ekran ayarı yeniden uygulanamadı. Uygulamayı açıp tekrar dene.", "Could not re-apply. Open the app and try again."));
             RefreshMonitors();
+        }
+
+        void RestoreVirtual()
+        {
+            string vg = Vdd.FindGdi();
+            var phys = FindPhysGdi();
+            if (vg == null || phys == null) { Raise(L.T("Sanal monitör bulunamadı.", "Virtual monitor not found.")); return; }
+            bool h = Horizontal;
+            MonitorInfo pm = null;
+            foreach (var m in monitors) if (m.DevicePath == cfg.MonitorPath) pm = m;
+            int fw = pm != null ? FullW(pm) : 1920, fh = pm != null ? FullH(pm) : 1080;
+            int vw = h ? fw - cfg.Cut : fw, vh = h ? fh : fh - cfg.Cut;
+
+            var now = DisplayLayout.Capture();
+            var v = DisplayLayout.Find(now, vg);
+            if (v == null || !v.Attached || v.W != vw || v.H != vh)
+            {
+                if (!DisplayLayout.HasBackup) BackupWithoutVirtual(vg);
+                int lr = VirtualMirror.Arrange(phys, vg, vw, vh);
+                if (lr != 0) { DisplayLayout.RestoreBackup(); Raise(L.T("Sanal monitör düzeni kurulamadı.", "Could not set up the virtual monitor layout.")); return; }
+                Pause(1200);
+            }
+            StopMirror();
+            mirror = new VirtualMirror(phys, vg, cfg.Edge, cfg.Cut);
+            string err = mirror.Start();
+            if (err != null) { mirror = null; DisplayLayout.RestoreBackup(); Raise(err); }
+        }
+
+        string FindPhysGdi()
+        {
+            foreach (var m in monitors) if (m.DevicePath == cfg.MonitorPath) return m.GdiName;
+            return null;
         }
 
         void Raise(string msg)
@@ -613,6 +854,9 @@ namespace EkranKurtar
             }
             SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;
             StopShield();
+            // Sanal monitör modu programsız çalışamaz: kapanırken ekran düzenini güvenli hale döndür.
+            // (Etkin bilgisi korunur; program tekrar açılınca kendiliğinden yeniden kurulur.)
+            if (mirror != null) { StopMirror(); DisplayLayout.RestoreBackup(); }
             overlay.Close();
             base.OnFormClosing(e);
         }

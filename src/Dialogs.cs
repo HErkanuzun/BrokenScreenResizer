@@ -155,10 +155,10 @@ namespace EkranKurtar
     // Koyu temalı mesaj kutusu
     class MsgDialog : DarkDialog
     {
-        MsgDialog(string text, bool warning)
+        MsgDialog(string text, bool warning, string yesText, string noText)
         {
             StartPosition = FormStartPosition.CenterParent;
-            int W = Theme.P(480), x0 = Theme.P(24), w = W - x0 * 2;
+            int W = Theme.P(500), x0 = Theme.P(24), w = W - x0 * 2;
 
             var dot = new Panel();
             dot.BackColor = warning ? Theme.Warn : Theme.Accent;
@@ -170,24 +170,44 @@ namespace EkranKurtar
 
             var body = MakeLabel(text.TrimEnd(), 9.5f, false, Theme.Sub, w);
             body.Location = new Point(x0, Theme.P(64));
-            int bodyH = body.PreferredHeight;
+            int bodyH;
             using (var g = CreateGraphics())
                 bodyH = (int)Math.Ceiling(g.MeasureString(body.Text, body.Font, w).Height);
 
             int by = Theme.P(64) + bodyH + Theme.P(20);
-            var ok = new FlatButton(L.T("Tamam", "OK"), BtnKind.Primary);
-            ok.Font = Font;
-            ok.SetBounds(W - x0 - Theme.P(110), by, Theme.P(110), Theme.P(40));
-            ok.Click += delegate { Close(); };
-            Controls.Add(ok);
+            int right = W - x0;
+            var yes = new FlatButton(yesText ?? L.T("Tamam", "OK"), BtnKind.Primary);
+            yes.Font = Font;
+            int yw = Math.Max(Theme.P(110), TextRenderer.MeasureText(yes.Text, new Font(Font, FontStyle.Bold)).Width + Theme.P(32));
+            yes.SetBounds(right - yw, by, yw, Theme.P(40));
+            yes.Click += delegate { DialogResult = DialogResult.OK; Close(); };
+            Controls.Add(yes);
+            if (noText != null)
+            {
+                var no = new FlatButton(noText, BtnKind.Secondary);
+                no.Font = Font;
+                int nw = Math.Max(Theme.P(100), TextRenderer.MeasureText(no.Text, Font).Width + Theme.P(32));
+                no.SetBounds(right - yw - Theme.P(12) - nw, by, nw, Theme.P(40));
+                no.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
+                Controls.Add(no);
+            }
             ClientSize = new Size(W, by + Theme.P(40) + Theme.P(20));
             KeyPreview = true;
-            KeyDown += delegate (object s, KeyEventArgs e) { if (e.KeyCode == Keys.Escape || e.KeyCode == Keys.Enter) Close(); };
+            KeyDown += delegate (object s, KeyEventArgs e)
+            {
+                if (e.KeyCode == Keys.Escape) { DialogResult = DialogResult.Cancel; Close(); }
+                if (e.KeyCode == Keys.Enter) { DialogResult = noText == null ? DialogResult.OK : DialogResult.Cancel; Close(); }
+            };
         }
 
         public static void Show(IWin32Window owner, string text, bool warning)
         {
-            using (var d = new MsgDialog(text, warning)) d.ShowDialog(owner);
+            using (var d = new MsgDialog(text, warning, null, null)) d.ShowDialog(owner);
+        }
+
+        public static bool Ask(IWin32Window owner, string text, string yesText, string noText)
+        {
+            using (var d = new MsgDialog(text, true, yesText, noText)) return d.ShowDialog(owner) == DialogResult.OK;
         }
     }
 }

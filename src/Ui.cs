@@ -395,10 +395,21 @@ namespace EkranKurtar
     class ModeCard : Ctl
     {
         public string Title = "", Desc = "", Badge = "";
+        public Color BadgeColor = Theme.Accent;
         bool sel;
         public event Action Picked;
 
         public bool Selected { get { return sel; } set { sel = value; Invalidate(); } }
+
+        float BadgeRow { get { return Badge != "" ? Theme.P(24) : 0; } }
+
+        // Başlık dar kartta iki satıra inebilir
+        float TitleH(Graphics g, int width)
+        {
+            float tx = Theme.P(14) + Theme.P(18) + Theme.P(10);
+            using (var bold = new Font(Font.FontFamily, Font.Size + 0.5f, FontStyle.Bold))
+                return Math.Max(Theme.P(18), g.MeasureString(Title, bold, (int)(width - tx - Theme.P(14))).Height);
+        }
 
         public int Measure(int width)
         {
@@ -406,7 +417,7 @@ namespace EkranKurtar
             {
                 float pad = Theme.P(14);
                 var d = g.MeasureString(Desc, Font, (int)(width - pad * 2));
-                return (int)Math.Ceiling(pad + Theme.P(18) + Theme.P(10) + d.Height + Theme.P(16));
+                return (int)Math.Ceiling(pad + TitleH(g, width) + BadgeRow + Theme.P(10) + d.Height + Theme.P(16));
             }
         }
 
@@ -433,21 +444,23 @@ namespace EkranKurtar
             using (var bold = new Font(Font.FontFamily, Font.Size + 0.5f, FontStyle.Bold))
             {
                 float tx = rx + rd + Theme.P(10);
-                var titleSize = g.MeasureString(Title, bold);
-                Theme.Draw(g, Title, bold, new RectangleF(tx, ry - Theme.P(2), Width - tx - pad, titleSize.Height + 2), C(Theme.Text),
-                    StringAlignment.Near, StringAlignment.Near, false);
+                float th = TitleH(g, Width);
+                Theme.Draw(g, Title, bold, new RectangleF(tx, ry - Theme.P(1), Width - tx - pad, th + Theme.P(2)), C(Theme.Text),
+                    StringAlignment.Near, StringAlignment.Near, true);
+                float top = ry + Math.Max(rd, th);
+                float dy = top + Theme.P(10);
                 if (Badge != "")
                 {
                     using (var small = new Font(Font.FontFamily, Font.Size - 1.5f, FontStyle.Bold))
                     {
                         var bs = g.MeasureString(Badge, small);
-                        float bx = Math.Min(tx + titleSize.Width + Theme.P(6), Width - pad - bs.Width - Theme.P(10));
-                        var br = new RectangleF(bx, ry, bs.Width + Theme.P(10), bs.Height + Theme.P(2));
-                        Theme.Fill(g, br, br.Height / 2, C(Theme.Mix(Theme.Accent, Theme.Card, 0.75f)));
-                        Theme.Draw(g, Badge, small, br, C(Theme.Accent), StringAlignment.Center, StringAlignment.Center, false);
+                        var br = new RectangleF(pad, top + Theme.P(7), Math.Min(bs.Width + Theme.P(10), Width - pad * 2), bs.Height + Theme.P(2));
+                        Theme.Fill(g, br, br.Height / 2, C(Theme.Mix(BadgeColor, Theme.Card, 0.75f)));
+                        Theme.Draw(g, Badge, small, br, C(BadgeColor), StringAlignment.Center, StringAlignment.Center, false);
                     }
+                    dy += BadgeRow;
                 }
-                Theme.Draw(g, Desc, Font, new RectangleF(pad, ry + rd + Theme.P(10), Width - pad * 2, Height - ry - rd - Theme.P(14)),
+                Theme.Draw(g, Desc, Font, new RectangleF(pad, dy, Width - pad * 2, Height - dy - Theme.P(8)),
                     C(Theme.Sub), StringAlignment.Near, StringAlignment.Near, true);
             }
         }
