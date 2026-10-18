@@ -176,8 +176,8 @@ namespace EkranKurtar
             cardVirtual.Title = L.T("Sanal monitör", "Virtual monitor");
             cardVirtual.Badge = L.T("Deneysel", "Experimental");
             cardVirtual.BadgeColor = Theme.Warn;
-            cardVirtual.Desc = L.T("Sağlam alan boyutunda sanal bir monitör açıp görüntüsünü buraya kopyalar. Ücretsiz Virtual Display Driver gerekir.",
-                                   "Creates a virtual monitor the size of the working area and mirrors it here. Needs the free Virtual Display Driver.");
+            cardVirtual.Desc = L.T("Sağlam alan boyutunda sanal bir monitör açıp görüntüsünü buraya kopyalar. Gerekli sürücü ilk kullanımda kurulur.",
+                                   "Creates a virtual monitor the size of the working area and mirrors it here. The required driver is installed on first use.");
             cardVirtual.Picked += delegate { cfg.Mode = Mode.Virtual; cfg.Save(); UpdateState(); };
 
             tLock = Add(new Toggle(L.T("Fareyi bozuk alana sokma", "Keep the mouse out of the broken area")));
@@ -314,9 +314,7 @@ namespace EkranKurtar
         {
             loading = true;
             monitors = DisplayConfig.GetMonitors();
-            string vdd = null;
-            try { vdd = Vdd.FindGdi(); } catch { }
-            if (vdd != null) monitors.RemoveAll(x => x.GdiName == vdd);
+            try { monitors.RemoveAll(x => Vdd.IsOurs(x.GdiName)); } catch { }
             var names = new string[monitors.Count];
             int sel = -1;
             for (int i = 0; i < monitors.Count; i++)
@@ -560,17 +558,55 @@ namespace EkranKurtar
         }
 
         // ---------------- 3) Sanal monitör modu
+        // Gömülü sanal ekran sürücüsünü kullanıcıya sorup kurar.
+        // Dönüş: null = kuruldu ve hazır, "" = kullanıcı vazgeçti, diğer = hata mesajı
+        string InstallDriver()
+        {
+            if (!DriverSetup.Embedded)
+                return L.T("Bu Ekran Kurtar sürümünde sanal ekran sürücüsü yok. driver\\build_driver.bat ile derleyip build.bat'i tekrar çalıştır.",
+                           "This Ekran Kurtar build has no virtual display driver. Build it with driver\\build_driver.bat and run build.bat again.");
+            if (!MsgDialog.Ask(this, L.T(
+                    "Sanal monitör yöntemi için Ekran Kurtar'ın sanal ekran sürücüsü gerekiyor. Şimdi kurulsun mu?\n\n" +
+                    "Windows yönetici izni isteyecek. Kurulum birkaç saniye sürer, ekran bir an kararabilir. " +
+                    "İstediğin zaman \"EkranKurtar.exe --uninstall-driver\" ile kaldırabilirsin.",
+                    "The virtual monitor method needs Ekran Kurtar's virtual display driver. Install it now?\n\n" +
+                    "Windows will ask for administrator permission. It takes a few seconds and the screen may flicker. " +
+                    "You can remove it any time with \"EkranKurtar.exe --uninstall-driver\"."),
+                    L.T("Kur ve devam et", "Install and continue"), L.T("Vazgeç", "Cancel")))
+                return "";
+
+            Cursor = Cursors.WaitCursor;
+            int r = DriverSetup.RunElevated("--install-driver");
+            if (r == DriverSetup.Cancelled) return "";
+            if (r == 3010)
+                return L.T("Sürücü kuruldu; Windows'un yeniden başlatılması gerekiyor. Yeniden başlattıktan sonra Uygula'ya tekrar bas.",
+                           "The driver was installed; Windows needs a restart. Press Apply again after restarting.");
+            if (r != 0)
+                return L.T("Sanal ekran sürücüsü kurulamadı: ", "Could not install the virtual display driver: ") + DriverSetup.Err(r) +
+                       "\n" + L.T("Ayrıntılar: ", "Details: ") + DriverSetup.LogFile;
+            if (!Vdd.WaitReady(20000))
+                return L.T("Sürücü kuruldu ama henüz başlamadı. Birkaç saniye sonra tekrar dene; olmazsa bilgisayarı yeniden başlat.",
+                           "The driver was installed but has not started yet. Try again in a few seconds, or restart the computer.");
+            return null;
+        }
+
+        // Fiziksel monitörün yenileme hızı (ayna akıcı olsun diye sanal monitör de aynı hızda açılır)
+        static int PhysRefresh(string gdi)
+        {
+            var e = DisplayLayout.Find(DisplayLayout.Capture(), gdi);
+            int hz = e != null ? e.Freq : 60;
+            return hz >= 24 && hz <= 240 ? hz : 60;
+        }
+
         void ApplyVirtual(MonitorInfo m)
         {
+            // 0) sürücü yoksa sor, kur ve kaldığı yerden devam et
             if (!Vdd.Installed)
             {
                 busy = false;
-                if (MsgDialog.Ask(this, L.T(
-                        "Bu yöntem ücretsiz ve açık kaynaklı Virtual Display Driver'ı gerektirir. Kurulumdan sonra bu düğmeye tekrar bas.",
-                        "This method needs the free, open-source Virtual Display Driver. Press this button again after installing it."),
-                        L.T("İndirme sayfasını aç", "Open download page"), L.T("Kapat", "Close")))
-                    try { Process.Start(Vdd.DownloadUrl); } catch { }
-                return;
+                string ie = InstallDriver();
+                busy = true;
+                if (ie != null) { if (ie.Length > 0) MsgDialog.Show(this, ie, true); return; }
             }
 
             bool h = Horizontal;
@@ -578,26 +614,13 @@ namespace EkranKurtar
             int vh = h ? FullH(m) : (FullH(m) - cfg.Cut) & ~1;
             int realCut = h ? FullW(m) - vw : FullH(m) - vh;
 
-            // 1) sanal monitöre bu çözünürlüğü ekle
-            string vg = Vdd.FindGdi();
-            if (vg == null || !Vdd.HasMode(vg, vw, vh))
+            // 1) sağlam alan boyutunda sanal monitörü aç
+            string vg;
+            string ve = Vdd.Ensure(vw, vh, PhysRefresh(m.GdiName), out vg);
+            if (ve != null)
             {
-                int ar = Vdd.AddResolutionElevated(vw, vh);
-                if (ar == 2 || ar == 3)
-                {
-                    MsgDialog.Show(this, (ar == 2
-                        ? L.T("Sanal monitör ayar dosyası düzenlenemedi (yönetici izni gerekli).", "Could not edit the virtual monitor settings (administrator permission needed).")
-                        : L.T("Sanal monitör ayar dosyası bulunamadı: ", "Virtual monitor settings file not found: ") + Vdd.ConfigFile), true);
-                    return;
-                }
-                Vdd.SendCommand("RELOAD_DRIVER");
-                if (!Vdd.WaitForMode(vw, vh, 12000))
-                {
-                    MsgDialog.Show(this, L.T("Sanal monitör yeni çözünürlüğü yüklemedi. Bilgisayarı yeniden başlatıp tekrar dene.",
-                                             "The virtual monitor did not load the new resolution. Restart the computer and try again."), true);
-                    return;
-                }
-                vg = Vdd.FindGdi();
+                OfferSoftware(ve, null);
+                return;
             }
 
             // 2) ekran düzenini yedekle ve sanal monitörü fiziksel monitörün yerine koy
@@ -655,6 +678,7 @@ namespace EkranKurtar
             if (mirror != null) { mirror.Stop(); mirror = null; }
         }
 
+
         void RevertClicked()
         {
             var m = Selected;
@@ -665,6 +689,7 @@ namespace EkranKurtar
                 StopMirror();
                 int vr = DisplayLayout.RestoreBackup();
                 if (vr != 0) MsgDialog.Show(this, L.T("Ekran düzeni geri yüklenemedi: ", "Could not restore the display layout: ") + DisplayLayout.Err(vr), true);
+                Vdd.RemoveAll();
             }
 
             string path = cfg.Active ? cfg.MonitorPath : (m != null ? m.DevicePath : "");
@@ -694,6 +719,8 @@ namespace EkranKurtar
         {
             StopShield();
             StopMirror();
+            DisplayLayout.RestoreBackup();
+            Vdd.RemoveAll();
             string log = DisplayConfig.ResetAll();
             cfg.Active = false;
             cfg.DriverWarp = false;
@@ -766,14 +793,18 @@ namespace EkranKurtar
 
         void RestoreVirtual()
         {
-            string vg = Vdd.FindGdi();
             var phys = FindPhysGdi();
-            if (vg == null || phys == null) { Raise(L.T("Sanal monitör bulunamadı.", "Virtual monitor not found.")); return; }
+            if (phys == null) { Raise(L.T("Ayarlı monitör bağlı değil.", "The configured monitor is not connected.")); return; }
             bool h = Horizontal;
             MonitorInfo pm = null;
             foreach (var m in monitors) if (m.DevicePath == cfg.MonitorPath) pm = m;
             int fw = pm != null ? FullW(pm) : 1920, fh = pm != null ? FullH(pm) : 1080;
             int vw = h ? fw - cfg.Cut : fw, vh = h ? fh : fh - cfg.Cut;
+
+            // sanal monitörü (program kapanınca kapatılmıştı) yeniden aç
+            string vg;
+            string ve = Vdd.Ensure(vw, vh, PhysRefresh(phys), out vg);
+            if (ve != null) { Raise(ve); return; }
 
             var now = DisplayLayout.Capture();
             var v = DisplayLayout.Find(now, vg);
@@ -856,7 +887,7 @@ namespace EkranKurtar
             StopShield();
             // Sanal monitör modu programsız çalışamaz: kapanırken ekran düzenini güvenli hale döndür.
             // (Etkin bilgisi korunur; program tekrar açılınca kendiliğinden yeniden kurulur.)
-            if (mirror != null) { StopMirror(); DisplayLayout.RestoreBackup(); }
+            if (mirror != null) { StopMirror(); DisplayLayout.RestoreBackup(); Vdd.RemoveAll(); }
             overlay.Close();
             base.OnFormClosing(e);
         }

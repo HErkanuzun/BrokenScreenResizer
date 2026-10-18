@@ -25,6 +25,7 @@ namespace EkranKurtar
             tray.DoubleClick += delegate { ShowForm(); };
 
             form.Notify += delegate (string msg) { tray.ShowBalloonTip(4000, "Ekran Kurtar", msg, ToolTipIcon.Info); };
+
             form.RestoreActive();
 
             if (!startHidden) ShowForm();
@@ -61,12 +62,22 @@ namespace EkranKurtar
         [STAThread]
         static void Main(string[] args)
         {
-            // Yönetici olarak açılan yardımcı çağrı: sanal monitöre çözünürlük ekle
-            if (args.Length == 3 && args[0] == "--vdd-res")
+            // Yönetici olarak açılan yardımcı çağrılar: gömülü sanal ekran sürücüsünü kur / kaldır
+            if (args.Length == 1 && args[0] == "--install-driver")
             {
-                int w, h;
-                bool okW = int.TryParse(args[1], out w), okH = int.TryParse(args[2], out h);
-                Environment.Exit(okW && okH ? Vdd.AddResolution(w, h) : 3);
+                Environment.Exit(DriverSetup.Install());
+                return;
+            }
+            if (args.Length >= 1 && args[0] == "--uninstall-driver")
+            {
+                // Kullanıcı doğrudan çalıştırdıysa kendini yönetici olarak yeniden başlatır
+                int ur = args.Length == 2 && args[1] == "--elevated"
+                    ? DriverSetup.Uninstall()
+                    : DriverSetup.RunElevated("--uninstall-driver --elevated");
+                if (args.Length == 1)
+                    MessageBox.Show(ur == 0 ? L.T("Sanal ekran sürücüsü kaldırıldı.", "The virtual display driver was removed.")
+                                            : L.T("Sürücü kaldırılamadı: ", "Could not remove the driver: ") + DriverSetup.Err(ur), "Ekran Kurtar");
+                Environment.Exit(ur);
                 return;
             }
 
@@ -85,6 +96,8 @@ namespace EkranKurtar
             // Acil durum: EkranKurtar.exe --reset
             if (reset)
             {
+                DisplayLayout.RestoreBackup();
+                Vdd.RemoveAll();
                 string log = DisplayConfig.ResetAll();
                 var s = Settings.Load();
                 s.Active = false;

@@ -25,19 +25,23 @@ Monitörünün sol, sağ, üst veya alt kenarındaki bozuk bölgeyi seçersin. E
 | | Yazılım modu (önerilen) | Sürücü modu (deneysel) | Sanal monitör (deneysel) |
 |---|---|---|---|
 | Nasıl çalışır | Bozuk alanı görev çubuğu gibi rezerve edip kapatır; fareyi düşük seviyeli kancayla yönlendirir, taşan pencereleri geri iter | Windows ekran yapılandırmasında masaüstünü sinyalin sağlam kısmına yerleştirir; NVIDIA'da bu reddedilirse NVIDIA Warp ile dener | Sağlam alan boyutunda sanal bir monitör açar, fiziksel monitörün yerine koyar ve görüntüsünü Windows Büyüteç API'siyle sağlam alana 1:1 kopyalar |
-| Uyumluluk | Her sistem | Ekran kartı sürücüsüne bağlı. NVIDIA GeForce'ta Warp yeni sürücülerde genelde kapalı | [Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver) (ücretsiz, açık kaynak) gerekir |
+| Uyumluluk | Her sistem | Ekran kartı sürücüsüne bağlı. NVIDIA GeForce'ta Warp yeni sürücülerde genelde kapalı | Windows 10 (1903+) / 11. Ekran Kurtar'ın kendi sanal ekran sürücüsü exe'nin içindedir, ilk kullanımda kurulur |
 | Tam ekran oyunlar | Kenarlıksız pencere modunda | ✅ | Kenarlıksız pencere modunda; biraz gecikme ekler |
 | Program kapalıyken | Program çalışmalı | Ayar kalır | Program çalışmalı; kapanınca ekran düzeni eski haline döner |
 
 Yazılım modu varsayılandır. Deneysel bir yöntem başarısız olursa program hiçbir şeyi değiştirmeden yazılım moduna geçmeyi önerir.
 
-### Sanal monitör yöntemi için kurulum
+### Sanal monitör yöntemi
 
-1. [Virtual Display Driver sürümler sayfasından](https://github.com/VirtualDrivers/Virtual-Display-Driver/releases) kurulum dosyasını indirip kur.
-2. Ekran Kurtar'da **Sanal monitör** yöntemini seç ve **Uygula**'ya bas.
-3. Program gerekli çözünürlüğü sürücünün ayar dosyasına ekler (bir kez yönetici izni isteyebilir), sanal monitörü yerleştirir ve aynayı başlatır.
+Ayrı bir program indirmene gerek yok; sanal ekran sürücüsü `EkranKurtar.exe`'nin içindedir.
 
-Geri al dediğinde (ya da program kapandığında) ekran düzeni önceki haline döner ve sanal monitör kapatılır.
+1. **Sanal monitör** yöntemini seç ve **Uygula**'ya bas.
+2. Sürücü kurulu değilse program "Kurulsun mu?" diye sorar. **Kur ve devam et** de; Windows bir kez yönetici izni ister.
+3. Program sürücüyü kurar, sağlam alan boyutunda sanal monitörü açar, yerine yerleştirir ve aynayı başlatır.
+
+Geri al dediğinde (ya da program kapandığında) ekran düzeni önceki haline döner ve sanal monitör kapatılır. Sürücü kurulu kalır ama monitörsüz durur; hiçbir şey göstermez.
+
+Sürücüyü tamamen kaldırmak için: `EkranKurtar.exe --uninstall-driver`
 
 ## Kullanım
 
@@ -64,11 +68,28 @@ Ekstra bir şey kurmaya gerek yok; Windows'ta bulunan .NET Framework 4 derleyici
 build.bat
 ```
 
-Çıktı: `bin\EkranKurtar.exe`
+Çıktı: `bin\EkranKurtar.exe`. `driver\package` klasöründeki hazır sürücü paketi exe'nin içine gömülür.
+
+### Sanal ekran sürücüsünü derleme (sadece sürücüyü değiştirdiysen)
+
+Sürücü `driver\` klasöründedir: Microsoft'un IddCx (Indirect Display Driver) altyapısıyla yazılmış, kullanıcı modunda çalışan (UMDF 2) bir sürücü. Uygulama sürücüyle doğrudan konuşur ve sağlam alan boyutunda monitör ekleyip kaldırır.
+
+Gerekenler: Visual Studio 2022 veya 2026, **C++ ile masaüstü geliştirme** bileşeni. WDK kurulu değilse betik Microsoft'un resmi NuGet paketini `driver\.wdk` içine indirir.
+
+```
+driver\build_driver.bat
+build.bat
+```
+
+`build_driver.bat` sürücüyü derler, katalog dosyasını oluşturur ve imzalar. İlk çalıştırmada senin bilgisayarında kendinden imzalı bir sertifika oluşturur ("Ekran Kurtar Driver Signing", Kullanıcı\Kişisel deposu). Özel anahtar bilgisayarından çıkmaz; pakete sadece açık sertifika (`.cer`) girer. Ekran Kurtar sürücüyü kurarken bu sertifikayı Windows'un güvenilen sertifikalarına ekler, kaldırırken siler.
+
+> Not: Kendinden imzalı sürücüler kişisel kullanım ve test için uygundur. Programı geniş çapta dağıtacaksan sürücüyü Microsoft'un imzalama hizmetinden (Partner Center, EV sertifikası gerekir) geçirmen önerilir.
+
+Kurulum günlüğü: `C:\ProgramData\EkranKurtar\driver\install.log`
 
 ## Gereksinimler
 
-- Windows 10 veya 11
+- Windows 10 veya 11 (sanal monitör yöntemi için Windows 10 1903 veya üstü, 64 bit)
 - .NET Framework 4.x (Windows'ta hazır gelir)
 
 ## Lisans
@@ -95,7 +116,7 @@ MIT
 
 - **Software mode (recommended):** reserves and covers the broken area like a taskbar, redirects the cursor with a low-level mouse hook so it never enters the broken area, and pushes overflowing windows back. Works everywhere; the app must keep running and games need borderless window mode.
 - **Driver mode (experimental):** changes the Windows display configuration (`DisplayConfig` desktop image region) so the desktop is placed on the working part of the signal. NVIDIA drivers reject non-centered placement (error 31); in that case the app tries NVIDIA Warp (centered desktop + `NvAPI_GPU_SetScanoutWarping`), which is officially supported on professional GPUs and often disabled on recent GeForce drivers.
-- **Virtual monitor (experimental):** creates a virtual monitor the size of the working area using the free [Virtual Display Driver](https://github.com/VirtualDrivers/Virtual-Display-Driver), puts it in place of the physical monitor and mirrors it 1:1 onto the working area with the Windows Magnification API. Adds a little latency; the app must keep running, and closing it restores the display layout.
+- **Virtual monitor (experimental):** creates a virtual monitor the size of the working area using Ekran Kurtar's own virtual display driver (built in, installed on first use after asking you), puts it in place of the physical monitor and mirrors it 1:1 onto the working area with the Windows Magnification API. Adds a little latency; the app must keep running, and closing it restores the display layout. Remove the driver with `EkranKurtar.exe --uninstall-driver`.
 
 If an experimental method fails, nothing is changed and the app offers to switch to software mode.
 
@@ -110,7 +131,9 @@ Emergency reset: use the **Emergency: reset all monitors** link, run `EkranKurta
 
 ## Building
 
-Run `build.bat` on Windows. It uses the .NET Framework 4 compiler included with Windows. Output: `bin\EkranKurtar.exe`.
+Run `build.bat` on Windows. It uses the .NET Framework 4 compiler included with Windows. Output: `bin\EkranKurtar.exe`, with the driver package from `driver\package` embedded.
+
+The virtual display driver (`driver\`) is an IddCx / UMDF 2 indirect display driver. To rebuild it, install Visual Studio 2022/2026 with the C++ desktop workload and run `driver\build_driver.bat` (it downloads the official WDK NuGet package if the WDK is not installed, then builds, catalogs and signs the driver with a self-signed certificate created on your machine), then run `build.bat`.
 
 ## License
 
