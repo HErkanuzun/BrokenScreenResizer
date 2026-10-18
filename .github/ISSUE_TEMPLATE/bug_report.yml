@@ -1,0 +1,52 @@
+name: Hata bildir / Bug report
+description: Bir şey beklediğin gibi çalışmıyor / Something doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Teşekkürler! Güvenlik sorunlarını burada değil, [gizli olarak](https://github.com/HErkanuzun/BrokenScreenResizer/security/advisories/new) bildir.
+        Thanks! Please report security issues [privately](https://github.com/HErkanuzun/BrokenScreenResizer/security/advisories/new), not here.
+  - type: input
+    id: version
+    attributes:
+      label: Sürüm / Version
+      description: Pencere başlığında yazar / Shown in the window title
+      placeholder: "1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: method
+    attributes:
+      label: Yöntem / Method
+      options:
+        - Yazılım modu / Software mode
+        - Sanal monitör / Virtual monitor
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows sürümü / Windows version
+      description: "winver"
+      placeholder: "Windows 11 24H2"
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: Ekran kartı ve monitörler / GPU and monitors
+      placeholder: "NVIDIA RTX 3060, 2 monitör / 2 monitors"
+  - type: textarea
+    id: what
+    attributes:
+      label: Ne oldu? / What happened?
+      description: Adımlar, beklenen ve gerçekleşen / Steps, expected and actual result
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Sürücü günlüğü (sanal monitör) / Driver log (virtual monitor)
+      description: C:\ProgramData\BrokenScreenResizer\driver\install.log
+      render: text

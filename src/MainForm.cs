@@ -45,10 +45,15 @@ namespace BrokenScreenResizer
         readonly Timer overlayTimer = new Timer();
         bool overlayDirty;
 
+        // Kırmızı önizleme sadece kullanıcı ayar yaparken görünür; son değişiklikten birkaç saniye sonra kaybolur.
+        // Program açılınca ekran hiçbir zaman kendiliğinden kırmızı olmaz.
+        readonly Timer overlayHold = new Timer();
+        bool editing;
+
         public MainForm(Settings cfg)
         {
             this.cfg = cfg;
-            Text = "Broken Screen Resizer";
+            Text = AppInfo.Name + " " + AppInfo.Version;
             Icon = Theme.AppIcon(32);
             FormBorderStyle = FormBorderStyle.Sizable;
             MaximizeBox = true;
@@ -68,6 +73,14 @@ namespace BrokenScreenResizer
 
             overlayTimer.Interval = 33;
             overlayTimer.Tick += delegate { if (overlayDirty) ApplyOverlay(); else overlayTimer.Stop(); };
+            overlayHold.Interval = 3000;
+            overlayHold.Tick += delegate
+            {
+                if (preview != null && preview.Capture) return;   // sürükleme sürüyor
+                overlayHold.Stop();
+                editing = false;
+                UpdatePreview();
+            };
 
             MigrateStartup();
             BuildUi();
@@ -211,9 +224,9 @@ namespace BrokenScreenResizer
             slider = Add(new FlatSlider());
             slider.ValueChanged += delegate (int v) { SetCut(v, slider); };
 
-            tPreview = Add(new Toggle(L.T("Gizlenecek alanı ekranda kırmızı göster", "Show the hidden area in red on screen")));
+            tPreview = Add(new Toggle(L.T("Ayarlarken ekranda kırmızıyla göster","Show the hidden area in red (while adjusting)")));
             tPreview.Checked = true;
-            tPreview.Changed += delegate { UpdatePreview(); };
+            tPreview.Changed += delegate (bool v) { if (v) MarkEditing(); UpdatePreview(); };
 
             secMethod = Section(L.T("Yöntem", "Method"));
             cardSoft = Add(new ModeCard());
@@ -518,8 +531,7 @@ namespace BrokenScreenResizer
             int lw = Limit(true), lh = Limit(false);
             c.L = Math.Min(c.L, lw); c.R = Math.Min(c.R, lw - c.L);
             c.T = Math.Min(c.T, lh); c.B = Math.Min(c.B, lh - c.T);
-            cfg.Cuts = c;
-            if (!cfg.Cuts.Any) cfg.Cuts[cfg.Focus] = MaxCut() * 3 / 8;   // ilk açılışta örnek bir değer
+            cfg.Cuts = c;   // ilk açılışta hiçbir kenar kesilmez; kullanıcı kendisi ayarlar
             preview.Cuts = cfg.Cuts;
             preview.FocusEdge = cfg.Focus;
             loading = false;
@@ -527,8 +539,16 @@ namespace BrokenScreenResizer
             UpdateState();
         }
 
+        void MarkEditing()
+        {
+            editing = true;
+            overlayHold.Stop();
+            overlayHold.Start();
+        }
+
         void SetFocus(Edge e)
         {
+            MarkEditing();
             cfg.Focus = e;
             loading = true;
             segEdge.Selected = Array.IndexOf(EdgeOrder, e);
@@ -541,6 +561,7 @@ namespace BrokenScreenResizer
         {
             if (loading) return;
             v = Math.Max(0, Math.Min(MaxCut(), v));
+            MarkEditing();
             cfg.Cuts[cfg.Focus] = v;
             SyncControls(from);
         }
@@ -548,6 +569,7 @@ namespace BrokenScreenResizer
         void OnPreviewCuts(Cuts c)
         {
             if (loading) return;
+            MarkEditing();
             cfg.Cuts = c;
             SyncControls(preview);
         }
@@ -570,8 +592,11 @@ namespace BrokenScreenResizer
                 // sürükleme mesajları arasında yeniden çizim beklemesin
                 lblValue.Update(); slider.Update(); segEdge.Update(); secArea.Update();
             }
+            if (cfg.Cuts.Any != shownAny) UpdateState();   // Uygula düğmesi ve durum metni
             UpdatePreview();
         }
+
+        bool shownAny;
 
         // Kenar seçicide her kenarın güncel değeri yazar (ör. "Sol 409"); kesim olmayan kenar sadece adıyla
         void UpdateEdgeItems()
@@ -589,7 +614,8 @@ namespace BrokenScreenResizer
 
         bool OverlayWanted(MonitorInfo m)
         {
-            return Visible && tPreview.Checked && !cfg.Active && !busy && m != null && !m.IsModified;
+            return Visible && tPreview.Checked && (editing || preview.Capture) && cfg.Cuts.Any &&
+                   !cfg.Active && !busy && m != null && !m.IsModified;
         }
 
         void UpdatePreview()
@@ -628,12 +654,13 @@ namespace BrokenScreenResizer
             cardSoft.Selected = cfg.Mode == Mode.Software;
             cardVirtual.Selected = cfg.Mode == Mode.Virtual;
             tPreview.Enabled = editable;
-            btnApply.Enabled = editable && m != null;
+            shownAny = cfg.Cuts.Any;
+            btnApply.Enabled = editable && m != null && shownAny;
             btnRevert.Enabled = !busy && (cfg.Active || (m != null && m.IsModified));
 
             if (cfg.Active && cfg.ActiveMode == Mode.Driver)
             {
-                // v1.5 ve öncesinden kalan sürücü modu ayarı
+                // v0.6 ve öncesinden kalan sürücü modu ayarı
                 status.Kind = StatusKind.Warn;
                 status.Text = L.T("Eski sürücü modu ayarı hâlâ etkin. Bu sürümde sürücü modu yok; kaldırmak için Geri al'a bas.",
                                   "An old driver-mode setting is still active. This version has no driver mode; press Revert to remove it.");
@@ -654,6 +681,12 @@ namespace BrokenScreenResizer
                 status.Kind = StatusKind.Warn;
                 status.Text = L.T("Bu monitör daha önce kırpılmış. Tam ekrana dönmek için Geri al'a bas.",
                                   "This monitor was cropped earlier. Press Revert to restore full screen.");
+            }
+            else if (!cfg.Cuts.Any)
+            {
+                status.Kind = StatusKind.Idle;
+                status.Text = L.T("Etkin değil. Önce bozuk alanı seç: monitör çiziminde bozuk kenarı içeri sürükle ya da bir kenar seçip değer gir.",
+                                  "Not active. First mark the broken area: drag the broken edge inward on the monitor drawing, or pick an edge and enter a value.");
             }
             else
             {
@@ -967,7 +1000,7 @@ namespace BrokenScreenResizer
                 return;
             }
 
-            // Eski sürücü modu (v1.5 ve öncesi): ayar Windows'ta kalıcıdır, bu sürüm yeniden uygulamaz.
+            // Eski sürücü modu (v0.6 ve öncesi): ayar Windows'ta kalıcıdır, bu sürüm yeniden uygulamaz.
             // Etkin bilgisi korunur ki "Geri al" monitörü tam ekrana döndürebilsin.
             RefreshMonitors();
         }
@@ -1032,16 +1065,25 @@ namespace BrokenScreenResizer
         }
 
         // ------------------------------------------------------------------ Başlangıç
-        // Eski adla ("Ekran Kurtar") eklenmiş başlangıç kaydını yeni ada taşır
+        // Başlangıç kaydını bu sürüme bağlar: eski adla ("Ekran Kurtar") eklenmiş kaydı taşır; kayıt silinmiş ya da
+        // daha eski bir sürümün exe'sini gösteriyorsa (ör. güncelleme sonrası) bu exe'yi yazar
         static void MigrateStartup()
         {
             try
             {
                 using (var k = Registry.CurrentUser.OpenSubKey(RunKey, true))
                 {
-                    if (k == null || k.GetValue(Settings.LegacyName) == null) return;
-                    k.DeleteValue(Settings.LegacyName, false);
-                    if (k.GetValue(RunName) == null) k.SetValue(RunName, "\"" + Application.ExecutablePath + "\" --tray");
+                    if (k == null) return;
+                    string me = "\"" + Application.ExecutablePath + "\" --tray";
+                    if (k.GetValue(Settings.LegacyName) != null)
+                    {
+                        k.DeleteValue(Settings.LegacyName, false);
+                        if (k.GetValue(RunName) == null) k.SetValue(RunName, me);
+                    }
+                    var cur = k.GetValue(RunName) as string;
+                    if (cur == null || cur == me || !Instances.IAmTheApp) return;
+                    string path = cur.StartsWith("\"") ? cur.Substring(1, Math.Max(0, cur.IndexOf('"', 1) - 1)) : cur.Split(' ')[0];
+                    if (!System.IO.File.Exists(path) || Instances.FileVersionOf(path) < Instances.Mine) k.SetValue(RunName, me);
                 }
             }
             catch { }

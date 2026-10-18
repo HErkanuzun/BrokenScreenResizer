@@ -18,7 +18,7 @@ namespace BrokenScreenResizer
 
             tray = new NotifyIcon();
             tray.Icon = Theme.AppIcon(16);
-            tray.Text = "Broken Screen Resizer";
+            tray.Text = AppInfo.Name + " " + AppInfo.Version;
             tray.ContextMenuStrip = BuildMenu();
             form.LanguageChanged += delegate { var old = tray.ContextMenuStrip; tray.ContextMenuStrip = BuildMenu(); old.Dispose(); };
             tray.Visible = true;
@@ -109,6 +109,13 @@ namespace BrokenScreenResizer
                 Environment.Exit(DriverSetup.Install());
                 return;
             }
+            // Kurulum paketi güncellemeden önce çalışan kopyaları düzgünce kapatır
+            if (args.Length == 1 && args[0] == "--exit")
+            {
+                Instances.StopOthers();
+                Environment.Exit(0);
+                return;
+            }
             // Tam kaldırmanın yönetici gerektiren kısmı (Uninstaller tarafından yönetici olarak başlatılır)
             if (args.Length == 1 && args[0] == "--uninstall-system")
             {
@@ -143,7 +150,7 @@ namespace BrokenScreenResizer
             // Tam kaldırma: BrokenScreenResizer.exe --uninstall (Uninstall.bat bunu çağırır)
             if (Array.IndexOf(args, "--uninstall") >= 0)
             {
-                Environment.Exit(Uninstaller.Run());
+                Environment.Exit(Uninstaller.Run(Array.IndexOf(args, "--silent") >= 0));
                 return;
             }
 
@@ -167,15 +174,30 @@ namespace BrokenScreenResizer
                 return;
             }
 
+            // Eski adlı sürüm (Ekran Kurtar) çalışıyorsa kapatılır; ikisi aynı anda ekranı değiştirmesin
+            if (Instances.LegacyRunning) Instances.StopOthers();
+
             bool created;
             using (var mtx = new Mutex(true, TrayApp.MutexName, out created))
             {
                 if (!created)
                 {
-                    // Zaten çalışıyor: çalışan kopyanın penceresini görünür yere getir
-                    if (!TrayApp.Signal(TrayApp.ShowEvent))
-                        MessageBox.Show(L.T("Broken Screen Resizer zaten çalışıyor (sağ alttaki simge).", "Broken Screen Resizer is already running (tray icon)."), "Broken Screen Resizer");
-                    return;
+                    // Zaten çalışan bir kopya var. O kopya bu sürümden eskiyse düzgünce kapatılır ve
+                    // yerini bu sürüm alır (etkin ayar yeni sürümde kendiliğinden yeniden kurulur).
+                    // Aynı ya da daha yeni sürümse onun penceresi gösterilir.
+                    var running = Instances.RunningVersion();
+                    if (running != null && running < Instances.Mine)
+                    {
+                        Instances.StopOthers();
+                        try { created = mtx.WaitOne(15000); }
+                        catch (AbandonedMutexException) { created = true; }
+                    }
+                    if (!created)
+                    {
+                        if (!TrayApp.Signal(TrayApp.ShowEvent))
+                            MessageBox.Show(L.T("Broken Screen Resizer zaten çalışıyor (sağ alttaki simge).", "Broken Screen Resizer is already running (tray icon)."), "Broken Screen Resizer");
+                        return;
+                    }
                 }
                 Application.Run(new TrayApp(tray));
             }

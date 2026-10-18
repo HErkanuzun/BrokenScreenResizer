@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 
 namespace BrokenScreenResizer
 {
-    // NVIDIA NvAPI: eski sürücü modunun (v1.5 ve öncesi) açtığı warp'ı kapatmak için gereken kısım.
+    // NVIDIA NvAPI: eski sürücü modunun (v0.6 ve öncesi) açtığı warp'ı kapatmak için gereken kısım.
     // Fonksiyon kimlikleri NVIDIA'nın açık kaynak nvapi_interface.h dosyasından alınmıştır.
     static class NvApi
     {

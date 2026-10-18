@@ -771,7 +771,8 @@ namespace BrokenScreenResizer
                 var bigSize = g.MeasureString(res, big);
                 var smallSize = g.MeasureString(Applied ? AppliedLabel : ResultLabel, small);
                 float blockH = bigSize.Height + smallSize.Height;
-                if (gr.Width > bigSize.Width && gr.Height > blockH + Theme.P(20))
+                // büyük yazı yan tutamaçlara değmesin diye iki yanda boşluk bırakılır
+                if (gr.Width > bigSize.Width + Theme.P(44) && gr.Height > blockH + Theme.P(20))
                 {
                     float by = gr.Y + (gr.Height - blockH) / 2;
                     Theme.Draw(g, res, big, new RectangleF(gr.X, by, gr.Width, bigSize.Height), Color.White, StringAlignment.Center, StringAlignment.Center, false);

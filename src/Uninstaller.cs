@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
-using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -20,25 +19,33 @@ namespace BrokenScreenResizer
     //   3) yönetici izniyle: sanal ekran sürücüsü, hayalet monitörler, sürücü paketleri, sertifikalar,
     //      Windows'un sanal monitör kayıtları, ProgramData klasörleri (bkz. DriverSetup.Purge)
     //   4) ayar klasörlerini (%AppData%) siler
-    //   5) istenirse programın kendisini ve Uninstall.bat'i siler
+    //   5) programın klasörünü gösterir (program kendini silmez; klasörü kullanıcı siler)
     // ===================================================================================
     static class Uninstaller
     {
         public const int Ok = 0, Cancelled = 1223, Partial = 1;
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
 
-        // Uygulamanın içinden: ayrı bir işlem olarak başlatır (o işlem bu kopyayı da düzgünce kapatır)
+        // Uygulamanın içinden: ayrı bir işlem olarak başlatır (o işlem bu kopyayı da düzgünce kapatır).
+        // Program kurulum paketiyle kurulduysa Windows'un kaldırıcısı açılır; o da aşağıdaki temizliği çağırır.
         public static void Launch()
         {
-            try { Process.Start(Application.ExecutablePath, "--uninstall"); }
+            try
+            {
+                string unins = Instances.SetupUninstaller;
+                if (unins != null) Process.Start(unins);
+                else Process.Start(Application.ExecutablePath, "--uninstall");
+            }
             catch { }
         }
 
-        public static int Run()
+        // silent: kurulum paketinin kaldırıcısından çağrılır (onay ve kapanış soruları o pencerede sorulur);
+        // sadece silinemeyen bir şey kalırsa bildirir
+        public static int Run(bool silent)
         {
             try { using (var g = Graphics.FromHwnd(IntPtr.Zero)) Theme.S = g.DpiX / 96f; } catch { }
 
-            if (!MsgDialog.Ask(null, L.T(
+            if (!silent && !MsgDialog.Ask(null, L.T(
                     "Broken Screen Resizer bilgisayarından tamamen kaldırılsın mı?\n\n" +
                     "Silinecekler: ayarlar, \"Windows ile başlat\" kaydı, ekran değişiklikleri (ekranlar eski haline döner), " +
                     "sanal ekran sürücüsü ve sertifikası, Windows'un sanal monitör kayıtları. Eski \"Ekran Kurtar\" kalıntıları da temizlenir.\n\n" +
@@ -56,7 +63,7 @@ namespace BrokenScreenResizer
             Cursor.Current = Cursors.WaitCursor;
 
             // 1) çalışan kopyaları kapat ve ekranı eski haline getir
-            StopRunning();
+            Instances.StopOthers();
             try
             {
                 MoveLegacyBackup();
@@ -84,19 +91,8 @@ namespace BrokenScreenResizer
             }
             catch (Exception ex) { left.Add(L.T("Başlangıç kaydı: ", "Startup entry: ") + ex.Message); }
 
-            // Geliştiricinin bu bilgisayarda oluşturduğu imzalama sertifikası (sadece driver\build_driver.bat çalıştırıldıysa vardır)
-            try
-            {
-                var st = new X509Store(StoreName.My, StoreLocation.CurrentUser);
-                st.Open(OpenFlags.ReadWrite);
-                try
-                {
-                    foreach (var s in new[] { Vdd.CertSubject, Vdd.LegacyCertSubject })
-                        foreach (X509Certificate2 c in st.Certificates.Find(X509FindType.FindBySubjectDistinguishedName, s, false)) st.Remove(c);
-                }
-                finally { st.Close(); }
-            }
-            catch { }
+            // Not: geliştiricinin sürücü imzalama sertifikasına (CurrentUser\My, driver\sign_driver.ps1) dokunulmaz;
+            // o programın bıraktığı bir kalıntı değil, sürücüyü yeniden imzalamak için gereken anahtardır.
 
             // 3) yönetici gerektiren kalıntılar
             if (DriverSetup.NeedsPurge())
@@ -127,6 +123,13 @@ namespace BrokenScreenResizer
             Cursor.Current = wait;
 
             // 5) sonuç ve programın kendisi
+            if (silent)
+            {
+                if (left.Count > 0)
+                    MsgDialog.Show(null, L.T("Kaldırma tamamlandı, ama bazı şeyler silinemedi:", "Uninstall finished, but some items could not be removed:") +
+                        "\n\n• " + string.Join("\n• ", left.ToArray()), true);
+                return left.Count == 0 ? Ok : Partial;
+            }
             var sb = new StringBuilder();
             sb.AppendLine(left.Count == 0 ? L.T("Broken Screen Resizer kaldırıldı.", "Broken Screen Resizer was removed.")
                                           : L.T("Kaldırma tamamlandı, ama bazı şeyler silinemedi:", "Uninstall finished, but some items could not be removed:"));
@@ -135,46 +138,13 @@ namespace BrokenScreenResizer
             if (left.Count > 0) sb.AppendLine();
             foreach (var s in report) sb.AppendLine("✓ " + s);
             sb.AppendLine();
-            sb.Append(L.T("Programın kendisi de (", "Delete the program file too (") + Path.GetFileName(Application.ExecutablePath) +
-                      L.T(" ve Uninstall.bat) silinsin mi?", " and Uninstall.bat)?"));
+            sb.Append(L.T("Program kurulum gerektirmediği için geriye sadece indirdiğin klasör kaldı. Klasörü açıp silebilirsin.",
+                          "The app needs no installation, so only the folder you downloaded is left. You can open it and delete it."));
 
-            if (MsgDialog.Ask(null, sb.ToString(), L.T("Programı da sil", "Delete the program"), L.T("Kalsın", "Keep it")))
-                DeleteSelf();
+            // Program kendini silmez (gizli komutla kendini silen programlar virüs gibi algılanır); klasörü gösterir
+            if (MsgDialog.Ask(null, sb.ToString(), L.T("Klasörü aç", "Open folder"), L.T("Kapat", "Close")))
+                ShowFolder();
             return left.Count == 0 ? Ok : Partial;
-        }
-
-        // Çalışan Broken Screen Resizer / Ekran Kurtar kopyalarını düzgünce kapatır (ayna ve fare kilidi bırakılır)
-        static void StopRunning()
-        {
-            TrayApp.Signal(TrayApp.ExitEvent);
-            TrayApp.Signal("EkranKurtar_Exit");
-            WaitMutex(TrayApp.MutexName, 10000);
-            WaitMutex("EkranKurtar_SingleInstance", 5000);
-
-            // eski sürümler sinyali tanımaz: zorla kapat (ekran düzeni sonra zaten geri yükleniyor)
-            int me = Process.GetCurrentProcess().Id;
-            foreach (var name in new[] { Settings.AppName, Settings.LegacyName })
-                foreach (var p in Process.GetProcessesByName(name))
-                    try
-                    {
-                        if (p.Id == me) continue;
-                        if (!p.WaitForExit(1500)) { p.Kill(); p.WaitForExit(3000); }
-                    }
-                    catch { }
-                    finally { p.Dispose(); }
-        }
-
-        static void WaitMutex(string name, int ms)
-        {
-            try
-            {
-                using (var m = new Mutex(false, name))
-                {
-                    try { if (m.WaitOne(ms)) m.ReleaseMutex(); }
-                    catch (AbandonedMutexException) { try { m.ReleaseMutex(); } catch { } }
-                }
-            }
-            catch { }
         }
 
         // Eski adla kaydedilmiş ekran düzeni yedeği varsa onu da geri yükleyebilmek için yeni klasöre alır
@@ -194,21 +164,10 @@ namespace BrokenScreenResizer
             catch { }
         }
 
-        // Program kapandıktan birkaç saniye sonra exe'yi ve yanındaki Uninstall.bat'i siler
-        static void DeleteSelf()
+        // Programın klasörünü Dosya Gezgini'nde, exe seçili olarak açar
+        static void ShowFolder()
         {
-            try
-            {
-                string exe = Application.ExecutablePath;
-                string bat = Path.Combine(Path.GetDirectoryName(exe), "Uninstall.bat");
-                string cmd = "/c ping 127.0.0.1 -n 3 >nul & del /f /q \"" + exe + "\"";
-                if (File.Exists(bat)) cmd += " & del /f /q \"" + bat + "\"";
-                var psi = new ProcessStartInfo("cmd.exe", cmd);
-                psi.CreateNoWindow = true;
-                psi.UseShellExecute = false;
-                psi.WindowStyle = ProcessWindowStyle.Hidden;
-                Process.Start(psi);
-            }
+            try { Process.Start("explorer.exe", "/select,\"" + Application.ExecutablePath + "\""); }
             catch { }
         }
     }
