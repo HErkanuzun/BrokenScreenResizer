@@ -24,7 +24,7 @@ namespace BrokenScreenResizer
     static class Vdd
     {
         public const string HardwareId = @"Root\BrokenScreenResizerVDD";
-        // v1.5 öncesi ("Ekran Kurtar") sürücünün kimliği: kurulumda kaldırılır
+        // v0.6 öncesi ("Ekran Kurtar") sürücünün kimliği: kurulumda kaldırılır
         public const string LegacyHardwareId = @"Root\EkranKurtarVDD";
         public const string LegacyCertSubject = "CN=Ekran Kurtar Driver Signing";
         public const string CertSubject = "CN=Broken Screen Resizer Driver Signing";
@@ -434,7 +434,7 @@ namespace BrokenScreenResizer
             finally { SetupDiDestroyDeviceInfoList(set); }
         }
 
-        // Eski adlı sürücüyü (Ekran Kurtar, v1.5 öncesi) kaldırır: aygıt, sürücü paketi, sertifika
+        // Eski adlı sürücüyü (Ekran Kurtar, v0.6 öncesi) kaldırır: aygıt, sürücü paketi, sertifika
         static void RemoveLegacy()
         {
             try

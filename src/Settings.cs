@@ -5,7 +5,7 @@ using System.IO;
 namespace BrokenScreenResizer
 {
     enum Edge { Left = 0, Top = 1, Right = 2, Bottom = 3 }   // değerler AppBar kenar kodlarıyla aynı
-    enum Mode { Driver = 0, Software = 1, Virtual = 2 }   // Driver: v1.5 ve öncesinden kalan ayarı tanımak için
+    enum Mode { Driver = 0, Software = 1, Virtual = 2 }   // Driver: v0.6 ve öncesinden kalan ayarı tanımak için
 
     // Monitörün dört kenarından gizlenen (bozuk) şeritler, piksel cinsinden.
     // Kalan dikdörtgen "sağlam alan"dır; böylece ekranın herhangi bir dikdörtgen bölgesi kullanılabilir.
@@ -105,7 +105,7 @@ namespace BrokenScreenResizer
         public bool DriverWarp = false;
 
         public const string AppName = "BrokenScreenResizer";
-        public const string LegacyName = "EkranKurtar";   // v1.5 öncesi adı
+        public const string LegacyName = "EkranKurtar";   // v0.6 öncesi adı
 
         public static string Dir
         {
@@ -148,10 +148,10 @@ namespace BrokenScreenResizer
                         case "monitor": s.MonitorPath = v; break;
                         case "cuts": if (Cuts.TryParse(v, out c)) { s.Cuts = c; hasCuts = true; } break;
                         case "focus": if (int.TryParse(v, out n) && n >= 0 && n <= 3) s.Focus = (Edge)n; break;
-                        // eski biçim (v1.5 öncesi): tek kenar + miktar
+                        // eski biçim (v0.6 öncesi): tek kenar + miktar
                         case "edge": if (int.TryParse(v, out n) && n >= 0 && n <= 3) edge = n; break;
                         case "cut": if (int.TryParse(v, out n) && n >= 0) cut = n; break;
-                        // sürücü modu v1.6'da kaldırıldı: yazılım moduna geçilir
+                        // sürücü modu v0.7'de kaldırıldı: yazılım moduna geçilir
                         case "mode": s.Mode = ParseMode(v, Mode.Software); if (s.Mode == Mode.Driver) s.Mode = Mode.Software; break;
                         case "active": s.Active = v == "1"; break;
                         case "activeMode": s.ActiveMode = ParseMode(v, Mode.Driver); break;

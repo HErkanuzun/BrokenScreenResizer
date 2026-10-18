@@ -34,8 +34,8 @@ namespace BrokenScreenResizer
         public Ccd.MODE[] Modes;
     }
 
-    // Windows ekran yapılandırması: monitör listesi ve eski "sürücü modu" (v1.5 ve öncesi) kırpmasını geri alma.
-    // Sürücü modu v1.6'da kaldırıldı; burada sadece monitörü tam ekrana döndüren kod kalır.
+    // Windows ekran yapılandırması: monitör listesi ve eski "sürücü modu" (v0.6 ve öncesi) kırpmasını geri alma.
+    // Sürücü modu v0.7'de kaldırıldı; burada sadece monitörü tam ekrana döndüren kod kalır.
     static class DisplayConfig
     {
         const uint NONE = 0xFFFF;
