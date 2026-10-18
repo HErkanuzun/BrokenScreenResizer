@@ -2,9 +2,7 @@
 
 **Kırık veya ölü pikselli monitörünü çöpe atma.** Ekran Kurtar, monitörünün bozuk kısmını Windows'tan gizler; Windows monitörü sanki sadece sağlam kısımdan ibaretmiş gibi kullanır.
 
-![Ekran Kurtar](docs/screenshot.png)
-
-*English below · 中文 · Русский arayüz dilleri de mevcut.*
+*English below.*
 
 ---
 
@@ -16,9 +14,6 @@ Monitörünün sol, sağ, üst veya alt kenarındaki bozuk bölgeyi seçersin. E
 - **Fare bozuk alana giremez.** Windows için o alan yoktur.
 - **Ölü alan yok.** Birden fazla monitörde, bir monitörün bittiği yerden diğerine doğrudan geçersin.
 - **Her şey geri alınabilir.** Her değişiklik 15 saniyelik onay ister; onaylamazsan kendiliğinden geri döner. Tek tuşla eski haline dönebilirsin.
-- **Görsel ayar.** Bozuk alanı monitör çiziminde sürükleyerek ya da kaydırıcıyla ayarlarsın; ayar yaparken gerçek ekranda kırmızıyla gösterilir.
-- **Nasıl çalışır paneli.** Her özelliği küçük animasyonlarla anlatır; bir ayarın üstüne gelince o ayarın ne yaptığını canlandırır.
-- **4 dil:** Türkçe, English, 中文, Русский.
 
 ## İki yöntem
 
@@ -79,9 +74,6 @@ MIT
 - **The mouse cannot enter the broken area.**
 - **No dead zones between monitors.** In multi-monitor setups, the cursor moves directly from one monitor's edge to the next.
 - **Fully reversible.** Every change needs confirmation within 15 seconds or it reverts automatically. One click restores everything.
-- **Visual setup.** Drag the broken area on the monitor drawing or use the slider; it is highlighted in red on the real screen while you adjust.
-- **How it works panel** with small animations for every feature.
-- **4 languages:** Türkçe, English, 中文, Русский.
 
 ## Two methods
 
