@@ -3,7 +3,7 @@ using System.Drawing;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace EkranKurtar
+namespace BrokenScreenResizer
 {
     class TrayApp : ApplicationContext
     {
@@ -18,13 +18,13 @@ namespace EkranKurtar
 
             tray = new NotifyIcon();
             tray.Icon = Theme.AppIcon(16);
-            tray.Text = "Ekran Kurtar";
+            tray.Text = "Broken Screen Resizer";
             tray.ContextMenuStrip = BuildMenu();
             form.LanguageChanged += delegate { var old = tray.ContextMenuStrip; tray.ContextMenuStrip = BuildMenu(); old.Dispose(); };
             tray.Visible = true;
             tray.DoubleClick += delegate { ShowForm(); };
 
-            form.Notify += delegate (string msg) { tray.ShowBalloonTip(4000, "Ekran Kurtar", msg, ToolTipIcon.Info); };
+            form.Notify += delegate (string msg) { tray.ShowBalloonTip(4000, "Broken Screen Resizer", msg, ToolTipIcon.Info); };
 
             // İkinci kez açılınca pencereyi göster; "--reset" gelince düzgünce kapan
             invoker = new Control();
@@ -38,13 +38,13 @@ namespace EkranKurtar
             if (!startHidden) ShowForm();
         }
 
-        public const string MutexName = "EkranKurtar_SingleInstance";
-        public const string ShowEvent = "EkranKurtar_Show", ExitEvent = "EkranKurtar_Exit";
+        public const string MutexName = "BrokenScreenResizer_SingleInstance";
+        public const string ShowEvent = "BrokenScreenResizer_Show", ExitEvent = "BrokenScreenResizer_Exit";
         readonly Control invoker;
         readonly EventWaitHandle showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEvent);
         readonly EventWaitHandle exitSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ExitEvent);
 
-        // Başka bir Ekran Kurtar işleminden çalışan kopyaya sinyal gönderir
+        // Başka bir Broken Screen Resizer işleminden çalışan kopyaya sinyal gönderir
         public static bool Signal(string name)
         {
             try
@@ -116,7 +116,7 @@ namespace EkranKurtar
                     : DriverSetup.RunElevated("--uninstall-driver --elevated");
                 if (args.Length == 1)
                     MessageBox.Show(ur == 0 ? L.T("Sanal ekran sürücüsü kaldırıldı.", "The virtual display driver was removed.")
-                                            : L.T("Sürücü kaldırılamadı: ", "Could not remove the driver: ") + DriverSetup.Err(ur), "Ekran Kurtar");
+                                            : L.T("Sürücü kaldırılamadı: ", "Could not remove the driver: ") + DriverSetup.Err(ur), "Broken Screen Resizer");
                 Environment.Exit(ur);
                 return;
             }
@@ -133,10 +133,10 @@ namespace EkranKurtar
             var saved = Settings.Load();
             if (saved.Lang != "") L.Set(saved.Lang);
 
-            // Acil durum: EkranKurtar.exe --reset
+            // Acil durum: BrokenScreenResizer.exe --reset
             if (reset)
             {
-                // Çalışan Ekran Kurtar varsa önce onu düzgünce kapat (aynayı, fare kilidini bırakır)
+                // Çalışan Broken Screen Resizer varsa önce onu düzgünce kapat (aynayı, fare kilidini bırakır)
                 TrayApp.Signal(TrayApp.ExitEvent);
                 using (var m = new Mutex(false, TrayApp.MutexName))
                 {
@@ -149,7 +149,7 @@ namespace EkranKurtar
                 var s = Settings.Load();
                 s.Active = false;
                 s.Save();
-                MessageBox.Show(log, "Ekran Kurtar");
+                MessageBox.Show(log, "Broken Screen Resizer");
                 return;
             }
 
@@ -160,7 +160,7 @@ namespace EkranKurtar
                 {
                     // Zaten çalışıyor: çalışan kopyanın penceresini görünür yere getir
                     if (!TrayApp.Signal(TrayApp.ShowEvent))
-                        MessageBox.Show(L.T("Ekran Kurtar zaten çalışıyor (sağ alttaki simge).", "Ekran Kurtar is already running (tray icon)."), "Ekran Kurtar");
+                        MessageBox.Show(L.T("Broken Screen Resizer zaten çalışıyor (sağ alttaki simge).", "Broken Screen Resizer is already running (tray icon)."), "Broken Screen Resizer");
                     return;
                 }
                 Application.Run(new TrayApp(tray));

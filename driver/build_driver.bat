@@ -1,14 +1,14 @@
 @echo off
 rem ============================================================================
-rem Ekran Kurtar sanal ekran surucusu - derleme + imzalama betigi
+rem Broken Screen Resizer sanal ekran surucusu - derleme + imzalama betigi
 rem
 rem Gerekenler (sadece gelistirici bilgisayarinda):
 rem   - Visual Studio 2022/2026, "C++ ile masaustu gelistirme" bileseni
 rem   - Windows SDK (Visual Studio ile gelir)
 rem   - WDK: kurulu degilse betik Microsoft'un resmi NuGet paketini driver\.wdk icine indirir
 rem
-rem Cikti: driver\package\  (EkranKurtarVDD.dll, .inf, .cat, .cer)
-rem Ana build.bat bu klasoru EkranKurtar.exe'nin icine gomer.
+rem Cikti: driver\package\  (BrokenScreenResizerVDD.dll, .inf, .cat, .cer)
+rem Ana build.bat bu klasoru BrokenScreenResizer.exe'nin icine gomer.
 rem ============================================================================
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
@@ -76,7 +76,7 @@ cl /nologo /c /std:c++17 /EHsc /O2 /MT /W4 /WX- /wd4324 /GS /guard:cf /Zi /utf-8
   /Fo"out\obj\\" /Fd"out\obj\\" Driver.cpp
 if errorlevel 1 goto :fail
 
-link /nologo /DLL /OUT:out\EkranKurtarVDD.dll /PDB:out\EkranKurtarVDD.pdb /DEBUG /OPT:REF /OPT:ICF ^
+link /nologo /DLL /OUT:out\BrokenScreenResizerVDD.dll /PDB:out\BrokenScreenResizerVDD.pdb /DEBUG /OPT:REF /OPT:ICF ^
   /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /GUARD:CF /RELEASE ^
   out\obj\Driver.obj ^
   "%WDKROOT%\Lib\wdf\umdf\x64\%UMDF_VER%\WdfDriverStubUm.lib" ^
@@ -84,9 +84,9 @@ link /nologo /DLL /OUT:out\EkranKurtarVDD.dll /PDB:out\EkranKurtarVDD.pdb /DEBUG
   ntdll.lib d3d11.lib dxgi.lib avrt.lib kernel32.lib
 if errorlevel 1 goto :fail
 
-copy /y out\EkranKurtarVDD.dll package\ >nul
-copy /y EkranKurtarVDD.inf package\ >nul
-if exist package\EkranKurtarVDD.cat del package\EkranKurtarVDD.cat
+copy /y out\BrokenScreenResizerVDD.dll package\ >nul
+copy /y BrokenScreenResizerVDD.inf package\ >nul
+if exist package\BrokenScreenResizerVDD.cat del package\BrokenScreenResizerVDD.cat
 
 rem ---------------------------------------------------------------- Imzalama
 rem Gelistiricinin kendi bilgisayarinda bir kez kendinden imzali sertifika olusturulur

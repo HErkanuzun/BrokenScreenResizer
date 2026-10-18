@@ -2,7 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace EkranKurtar
+namespace BrokenScreenResizer
 {
     // Windows Display Configuration (CCD) API
     static class Ccd

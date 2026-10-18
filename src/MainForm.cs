@@ -5,12 +5,12 @@ using System.Drawing;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace EkranKurtar
+namespace BrokenScreenResizer
 {
     class MainForm : Form
     {
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-        const string RunName = "EkranKurtar";
+        const string RunName = "BrokenScreenResizer";
         static readonly Edge[] EdgeOrder = { Edge.Left, Edge.Right, Edge.Top, Edge.Bottom };
 
         readonly Settings cfg;
@@ -30,7 +30,7 @@ namespace EkranKurtar
         MonitorPreview preview;
         FlatSlider slider;
         FlatButton btnMinus, btnPlus, btnApply, btnRevert, btnReset;
-        Label lblValue;
+        Label lblValue, lblHint;
         Toggle tPreview, tLock, tFix, tStartup;
         ModeCard cardDriver, cardSoft, cardVirtual;
         StatusBox status;
@@ -39,7 +39,7 @@ namespace EkranKurtar
         public MainForm(Settings cfg)
         {
             this.cfg = cfg;
-            Text = "Ekran Kurtar";
+            Text = "Broken Screen Resizer";
             Icon = Theme.AppIcon(32);
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
@@ -47,6 +47,7 @@ namespace EkranKurtar
             BackColor = Theme.Bg;
             ForeColor = Theme.Text;
             using (var g = CreateGraphics()) Theme.S = g.DpiX / 96f;
+            MigrateStartup();
             BuildUi();
             RefreshMonitors();
             SystemEvents.DisplaySettingsChanged += OnDisplayChanged;
@@ -92,7 +93,7 @@ namespace EkranKurtar
             Controls.Add(logo);
 
             lblTitle = new Label();
-            lblTitle.Text = "Ekran Kurtar";
+            lblTitle.Text = "Broken Screen Resizer";
             lblTitle.Font = new Font(Font.FontFamily, 15f, FontStyle.Bold);
             lblTitle.ForeColor = Theme.Text;
             lblTitle.AutoSize = true;
@@ -125,25 +126,32 @@ namespace EkranKurtar
             preview.BrokenLabel = L.T("Bozuk", "Broken");
             preview.ResultLabel = L.T("Windows'un göreceği ekran", "What Windows will see");
             preview.AppliedLabel = L.T("Etkin", "Active");
-            preview.CutChanged += delegate (int v) { SetCut(v, preview); };
+            preview.CutsChanged += delegate (Cuts c) { OnPreviewCuts(c); };
+            preview.FocusChanged += delegate (Edge e) { SetFocus(e); };
 
-            secEdge = Section(L.T("Bozuk kenar", "Broken edge"));
+            lblHint = new Label();
+            lblHint.Text = L.T("Bozuk olan her kenarı sürükle (birden fazla kenar olabilir). Köşeden tutunca iki kenar birlikte, ortadan tutunca tüm alan taşınır.",
+                               "Drag each broken edge (more than one is fine). Grab a corner to move two edges, or the middle to move the whole area.");
+            lblHint.ForeColor = Theme.Sub;
+            lblHint.Font = new Font(Font.FontFamily, 8.5f);
+            lblHint.AutoSize = true;
+            Controls.Add(lblHint);
+
+            secEdge = Section(L.T("Bozuk kenarlar", "Broken edges"));
             segEdge = Add(new Seg());
-            segEdge.Items = new[] { L.T("Sol", "Left"), L.T("Sağ", "Right"), L.T("Üst", "Top"), L.T("Alt", "Bottom") };
-            segEdge.Selected = Math.Max(0, Array.IndexOf(EdgeOrder, cfg.Edge));
+            UpdateEdgeItems();
+            segEdge.Selected = Math.Max(0, Array.IndexOf(EdgeOrder, cfg.Focus));
             segEdge.Changed += delegate (int i)
             {
                 if (loading) return;
-                cfg.Edge = EdgeOrder[i];
-                cfg.Cut = 0;
-                UpdateRange();
+                SetFocus(EdgeOrder[i]);
             };
 
             secArea = Section(L.T("Gizlenecek alan (px)", "Area to hide (px)"));
             btnMinus = Add(new FlatButton("−", BtnKind.Secondary));
-            btnMinus.Click += delegate { SetCut(cfg.Cut - 1, null); };
+            btnMinus.Click += delegate { SetCut(cfg.Cuts[cfg.Focus] - 1, null); };
             btnPlus = Add(new FlatButton("+", BtnKind.Secondary));
-            btnPlus.Click += delegate { SetCut(cfg.Cut + 1, null); };
+            btnPlus.Click += delegate { SetCut(cfg.Cuts[cfg.Focus] + 1, null); };
             lblValue = new Label();
             lblValue.TextAlign = ContentAlignment.MiddleCenter;
             lblValue.ForeColor = Theme.Text;
@@ -203,7 +211,7 @@ namespace EkranKurtar
             btnReset.Click += delegate { EmergencyReset(); };
 
             explainer = Add(new Explainer());
-            Explain(preview, 0); Explain(slider, 0); Explain(segEdge, 0); Explain(btnMinus, 0); Explain(btnPlus, 0);
+            Explain(preview, 0); Explain(lblHint, 0); Explain(slider, 0); Explain(segEdge, 0); Explain(btnMinus, 0); Explain(btnPlus, 0);
             Explain(tPreview, 0); Explain(tLock, 0);
             Explain(cardDriver, 1);
             Explain(segMonitor, 2);
@@ -234,7 +242,9 @@ namespace EkranKurtar
             secMonitor.Location = new Point(x0, y); y += P(22);
             segMonitor.SetBounds(x0, y, w, P(38)); y += P(38) + P(16);
 
-            preview.SetBounds(x0, y, w, P(250)); y += P(250) + P(16);
+            preview.SetBounds(x0, y, w, P(250)); y += P(250) + P(4);
+            lblHint.MaximumSize = new Size(w, 0);
+            lblHint.Location = new Point(x0, y); y += lblHint.PreferredHeight + P(14);
 
             int half = (w - P(16)) / 2;
             secEdge.Location = new Point(x0, y);
@@ -305,7 +315,12 @@ namespace EkranKurtar
             get { int i = segMonitor.Selected; return i >= 0 && i < monitors.Count ? monitors[i] : null; }
         }
 
-        bool Horizontal { get { return cfg.Edge == Edge.Left || cfg.Edge == Edge.Right; } }
+        bool Horizontal { get { return Cuts.IsHorizontal(cfg.Focus); } }
+
+        static Edge Opposite(Edge e)
+        {
+            return e == Edge.Left ? Edge.Right : e == Edge.Right ? Edge.Left : e == Edge.Top ? Edge.Bottom : Edge.Top;
+        }
 
         static int FullW(MonitorInfo m) { return m.PathW > 0 ? m.PathW : m.SignalW; }
         static int FullH(MonitorInfo m) { return m.PathH > 0 ? m.PathH : m.SignalH; }
@@ -336,11 +351,18 @@ namespace EkranKurtar
             UpdateRange();
         }
 
-        int MaxCut()
+        // Bir yöndeki toplam kesim en fazla üçte iki olabilir (sağlam alan en az üçte bir kalır)
+        int Limit(bool horizontal)
         {
             var m = Selected;
             if (m == null) return 100;
-            return Math.Max(8, (Horizontal ? FullW(m) : FullH(m)) * 2 / 3);
+            return Math.Max(8, (horizontal ? FullW(m) : FullH(m)) * 2 / 3);
+        }
+
+        // Düzenlenen kenar için en büyük değer (karşı kenarın kesimi düşülür)
+        int MaxCut()
+        {
+            return Math.Max(0, Limit(Horizontal) - cfg.Cuts[Opposite(cfg.Focus)]);
         }
 
         void UpdateRange()
@@ -352,26 +374,66 @@ namespace EkranKurtar
                 preview.SignalW = FullW(m);
                 preview.SignalH = FullH(m);
             }
-            preview.Edge = cfg.Edge;
-            int max = MaxCut();
-            slider.Maximum = max;
-            int v = cfg.Cut > 0 ? Math.Min(max, cfg.Cut) : max * 3 / 8;
+            // kesimleri bu monitörün boyutuna sığdır
+            var c = cfg.Cuts;
+            int lw = Limit(true), lh = Limit(false);
+            c.L = Math.Min(c.L, lw); c.R = Math.Min(c.R, lw - c.L);
+            c.T = Math.Min(c.T, lh); c.B = Math.Min(c.B, lh - c.T);
+            cfg.Cuts = c;
+            if (!cfg.Cuts.Any) cfg.Cuts[cfg.Focus] = MaxCut() * 3 / 8;   // ilk açılışta örnek bir değer
+            preview.Cuts = cfg.Cuts;
+            preview.FocusEdge = cfg.Focus;
             loading = false;
-            SetCut(v, null);
+            SyncControls(null);
             UpdateState();
+        }
+
+        void SetFocus(Edge e)
+        {
+            cfg.Focus = e;
+            loading = true;
+            segEdge.Selected = Array.IndexOf(EdgeOrder, e);
+            preview.FocusEdge = e;
+            loading = false;
+            SyncControls(null);
         }
 
         void SetCut(int v, object from)
         {
             if (loading) return;
-            v = Math.Max(1, Math.Min(MaxCut(), v));
-            cfg.Cut = v;
+            v = Math.Max(0, Math.Min(MaxCut(), v));
+            cfg.Cuts[cfg.Focus] = v;
+            SyncControls(from);
+        }
+
+        void OnPreviewCuts(Cuts c)
+        {
+            if (loading) return;
+            cfg.Cuts = c;
+            SyncControls(preview);
+        }
+
+        // Kaydırıcı, değer etiketi, kenar seçici ve önizlemeyi ayardaki kesimlere eşitler
+        void SyncControls(object from)
+        {
+            int v = cfg.Cuts[cfg.Focus];
+            slider.Maximum = Math.Max(1, MaxCut());
             if (from != slider) slider.Value = v;
-            if (from != preview) preview.Cut = v;
+            if (from != preview) preview.Cuts = cfg.Cuts;
             var m = Selected;
             int total = m == null ? 1 : Math.Max(1, Horizontal ? FullW(m) : FullH(m));
             lblValue.Text = v + " px   ·   %" + (v * 100 / total);
+            UpdateEdgeItems();
             UpdatePreview();
+        }
+
+        // Kesim olan kenarlar seçicide nokta ile işaretlenir
+        void UpdateEdgeItems()
+        {
+            var names = new[] { L.T("Sol", "Left"), L.T("Sağ", "Right"), L.T("Üst", "Top"), L.T("Alt", "Bottom") };
+            for (int i = 0; i < names.Length; i++)
+                if (cfg.Cuts[EdgeOrder[i]] > 0) names[i] += " •";
+            segEdge.Items = names;
         }
 
         void UpdatePreview()
@@ -380,9 +442,8 @@ namespace EkranKurtar
             if (!Visible || !tPreview.Checked || cfg.Active || busy || m == null || m.IsModified) { overlay.Hide(); return; }
             var s = Shield.FindScreen(m.GdiName);
             if (s == null) { overlay.Hide(); return; }
-            int full = Math.Max(1, Horizontal ? FullW(m) : FullH(m));
-            int desk = Horizontal ? s.Bounds.Width : s.Bounds.Height;
-            overlay.ShowAt(Geo.Cut(s.Bounds, cfg.Edge, cfg.Cut * desk / full));
+            var c = cfg.Cuts.Scale(FullW(m), FullH(m), s.Bounds.Width, s.Bounds.Height);
+            overlay.ShowFrame(s.Bounds, c.Good(s.Bounds));
         }
 
         void UpdateState()
@@ -445,12 +506,12 @@ namespace EkranKurtar
         void ApplyClicked()
         {
             var m = Selected;
-            if (m == null || cfg.Cut <= 0) return;
+            if (m == null || !cfg.Cuts.Any) return;
             cfg.MonitorPath = m.DevicePath;
 
             if (cfg.Mode == Mode.Software)
             {
-                if (!StartShield(m.GdiName)) { MsgDialog.Show(this, L.T("Monitör bulunamadı.", "Monitor not found."), true); return; }
+                if (!StartShield(m)) { MsgDialog.Show(this, L.T("Monitör bulunamadı.", "Monitor not found."), true); return; }
                 cfg.Active = true;
                 cfg.ActiveMode = Mode.Software;
                 cfg.Save();
@@ -496,7 +557,7 @@ namespace EkranKurtar
         // ---------------- 2) Sürücü modu: önce standart yöntem, olmazsa NVIDIA warp
         void ApplyDriver(MonitorInfo m)
         {
-            var res = DisplayConfig.TryApply(m.DevicePath, cfg.Edge, cfg.Cut, false);
+            var res = DisplayConfig.TryApply(m.DevicePath, cfg.Cuts, false);
             string log = res.Log;
             bool warp = false;
             uint nid = 0;
@@ -508,7 +569,7 @@ namespace EkranKurtar
                 log += NvApi.Err(pr) + "\n";
                 if (pr == NvApi.OK)
                 {
-                    res = DisplayConfig.TryApply(m.DevicePath, cfg.Edge, cfg.Cut, true);
+                    res = DisplayConfig.TryApply(m.DevicePath, cfg.Cuts, true);
                     log += res.Log;
                     if (res.Ok)
                     {
@@ -530,7 +591,7 @@ namespace EkranKurtar
                 int r = DisplayConfig.Keep(res.Applied);
                 if (r == 0)
                 {
-                    cfg.Cut = res.ActualCut;
+                    cfg.Cuts = res.ActualCuts;
                     cfg.Active = true;
                     cfg.ActiveMode = Mode.Driver;
                     cfg.DriverWarp = warp;
@@ -549,7 +610,7 @@ namespace EkranKurtar
             int sr = NvApi.Scanout(nid, out si);
             if (sr != NvApi.OK) { log += "Scanout: " + NvApi.Err(sr) + "\n"; return false; }
             var src = si.sourceDesktopRect;
-            var dst = NvApi.Target(cfg.Edge, src.W, src.H, (int)si.targetDisplayWidth, (int)si.targetDisplayHeight);
+            var dst = NvApi.Target(cfg.Cuts, src.W, src.H, (int)si.targetDisplayWidth, (int)si.targetDisplayHeight);
             log += "Warp: " + src.W + "x" + src.H + " -> " + dst.X + "," + dst.Y + " (" + si.targetDisplayWidth + "x" + si.targetDisplayHeight + ")\n";
             bool sticky;
             int wr = NvApi.SetWarp(nid, src, dst, out sticky);
@@ -563,15 +624,15 @@ namespace EkranKurtar
         string InstallDriver()
         {
             if (!DriverSetup.Embedded)
-                return L.T("Bu Ekran Kurtar sürümünde sanal ekran sürücüsü yok. driver\\build_driver.bat ile derleyip build.bat'i tekrar çalıştır.",
-                           "This Ekran Kurtar build has no virtual display driver. Build it with driver\\build_driver.bat and run build.bat again.");
+                return L.T("Bu Broken Screen Resizer sürümünde sanal ekran sürücüsü yok. driver\\build_driver.bat ile derleyip build.bat'i tekrar çalıştır.",
+                           "This Broken Screen Resizer build has no virtual display driver. Build it with driver\\build_driver.bat and run build.bat again.");
             if (!MsgDialog.Ask(this, L.T(
-                    "Sanal monitör yöntemi için Ekran Kurtar'ın sanal ekran sürücüsü gerekiyor. Şimdi kurulsun mu?\n\n" +
+                    "Sanal monitör yöntemi için Broken Screen Resizer'ın sanal ekran sürücüsü gerekiyor. Şimdi kurulsun mu?\n\n" +
                     "Windows yönetici izni isteyecek. Kurulum birkaç saniye sürer, ekran bir an kararabilir. " +
-                    "İstediğin zaman \"EkranKurtar.exe --uninstall-driver\" ile kaldırabilirsin.",
-                    "The virtual monitor method needs Ekran Kurtar's virtual display driver. Install it now?\n\n" +
+                    "İstediğin zaman \"BrokenScreenResizer.exe --uninstall-driver\" ile kaldırabilirsin.",
+                    "The virtual monitor method needs Broken Screen Resizer's virtual display driver. Install it now?\n\n" +
                     "Windows will ask for administrator permission. It takes a few seconds and the screen may flicker. " +
-                    "You can remove it any time with \"EkranKurtar.exe --uninstall-driver\"."),
+                    "You can remove it any time with \"BrokenScreenResizer.exe --uninstall-driver\"."),
                     L.T("Kur ve devam et", "Install and continue"), L.T("Vazgeç", "Cancel")))
                 return "";
 
@@ -609,10 +670,8 @@ namespace EkranKurtar
                 if (ie != null) { if (ie.Length > 0) MsgDialog.Show(this, ie, true); return; }
             }
 
-            bool h = Horizontal;
-            int vw = h ? (FullW(m) - cfg.Cut) & ~1 : FullW(m);
-            int vh = h ? FullH(m) : (FullH(m) - cfg.Cut) & ~1;
-            int realCut = h ? FullW(m) - vw : FullH(m) - vh;
+            int vw, vh;
+            var realCuts = EvenSize(cfg.Cuts, FullW(m), FullH(m), out vw, out vh);
 
             // 1) sağlam alan boyutunda sanal monitörü aç
             string vg;
@@ -635,7 +694,7 @@ namespace EkranKurtar
             Pause(1200);
 
             // 3) aynayı başlat
-            var mirror = new VirtualMirror(m.GdiName, vg, cfg.Edge, realCut);
+            var mirror = new VirtualMirror(m.GdiName, vg, realCuts);
             string err = mirror.Start();
             if (err != null)
             {
@@ -648,7 +707,7 @@ namespace EkranKurtar
             {
                 StopMirror();
                 this.mirror = mirror;
-                cfg.Cut = realCut;
+                cfg.Cuts = realCuts;
                 cfg.Active = true;
                 cfg.ActiveMode = Mode.Virtual;
                 cfg.Save();
@@ -656,6 +715,16 @@ namespace EkranKurtar
             }
             mirror.Stop();
             DisplayLayout.RestoreBackup();
+        }
+
+        // Sanal monitörün boyutu çift sayı olmalı; artan piksel kesilen kenara eklenir
+        static Cuts EvenSize(Cuts c, int fw, int fh, out int vw, out int vh)
+        {
+            vw = (fw - c.H) & ~1;
+            vh = (fh - c.V) & ~1;
+            if (fw - c.H - vw > 0) { if (c.R > 0 || c.L == 0) c.R++; else c.L++; }
+            if (fh - c.V - vh > 0) { if (c.B > 0 || c.T == 0) c.B++; else c.T++; }
+            return c;
         }
 
         // Geri alınca sanal monitör de kapansın (fazladan "hayalet" monitör kalmasın)
@@ -760,10 +829,10 @@ namespace EkranKurtar
             return t != null ? t.WorkingArea : Screen.PrimaryScreen.WorkingArea;
         }
 
-        bool StartShield(string gdiName)
+        bool StartShield(MonitorInfo m)
         {
             StopShield();
-            shield = new Shield(gdiName, cfg.Edge, cfg.Cut, cfg.LockCursor, cfg.FixWindows);
+            shield = new Shield(m.GdiName, cfg.Cuts, FullW(m), FullH(m), cfg.LockCursor, cfg.FixWindows);
             if (shield.Start()) return true;
             shield = null;
             return false;
@@ -788,7 +857,7 @@ namespace EkranKurtar
 
             if (cfg.ActiveMode == Mode.Software)
             {
-                if (!StartShield(target.GdiName)) Raise(L.T("Yazılım modu başlatılamadı.", "Could not start software mode."));
+                if (!StartShield(target)) Raise(L.T("Yazılım modu başlatılamadı.", "Could not start software mode."));
                 return;
             }
 
@@ -798,10 +867,10 @@ namespace EkranKurtar
                 return;
             }
 
-            bool ok = DisplayConfig.IsApplied(cfg.MonitorPath, cfg.Edge, cfg.Cut, cfg.DriverWarp);
+            bool ok = DisplayConfig.IsApplied(cfg.MonitorPath, cfg.Cuts, cfg.DriverWarp);
             if (!ok)
             {
-                var res = DisplayConfig.TryApply(cfg.MonitorPath, cfg.Edge, cfg.Cut, cfg.DriverWarp);
+                var res = DisplayConfig.TryApply(cfg.MonitorPath, cfg.Cuts, cfg.DriverWarp);
                 ok = res.Ok && DisplayConfig.Keep(res.Applied) == 0;
                 if (!ok && res.Original != null && res.Applied != null) DisplayConfig.Restore(res.Original);
             }
@@ -818,11 +887,22 @@ namespace EkranKurtar
         {
             var phys = FindPhysGdi();
             if (phys == null) { Raise(L.T("Ayarlı monitör bağlı değil.", "The configured monitor is not connected.")); return; }
-            bool h = Horizontal;
             MonitorInfo pm = null;
             foreach (var m in monitors) if (m.DevicePath == cfg.MonitorPath) pm = m;
             int fw = pm != null ? FullW(pm) : 1920, fh = pm != null ? FullH(pm) : 1080;
-            int vw = h ? fw - cfg.Cut : fw, vh = h ? fh : fh - cfg.Cut;
+            int vw = fw - cfg.Cuts.H, vh = fh - cfg.Cuts.V;
+
+            // Sürücü yoksa (ör. eski adlı sürücü kaldırıldı) ekranı güvenli hale getir; Uygula'ya basınca kurulur
+            if (!Vdd.Installed)
+            {
+                DisplayLayout.RestoreBackup();
+                cfg.Active = false;
+                cfg.Save();
+                RefreshMonitors();
+                Raise(L.T("Sanal monitör sürücüsü güncellenmeli. Uygula'ya basınca kurulacak.",
+                          "The virtual monitor driver needs an update. It will be installed when you press Apply."));
+                return;
+            }
 
             // sanal monitörü (program kapanınca kapatılmıştı) yeniden aç
             string vg;
@@ -839,7 +919,7 @@ namespace EkranKurtar
                 Pause(1200);
             }
             StopMirror();
-            mirror = new VirtualMirror(phys, vg, cfg.Edge, cfg.Cut);
+            mirror = new VirtualMirror(phys, vg, cfg.Cuts);
             string err = mirror.Start();
             if (err != null) { mirror = null; DisplayLayout.RestoreBackup(); Raise(err); }
         }
@@ -863,6 +943,21 @@ namespace EkranKurtar
         }
 
         // ------------------------------------------------------------------ Başlangıç
+        // Eski adla ("Ekran Kurtar") eklenmiş başlangıç kaydını yeni ada taşır
+        static void MigrateStartup()
+        {
+            try
+            {
+                using (var k = Registry.CurrentUser.OpenSubKey(RunKey, true))
+                {
+                    if (k == null || k.GetValue(Settings.LegacyName) == null) return;
+                    k.DeleteValue(Settings.LegacyName, false);
+                    if (k.GetValue(RunName) == null) k.SetValue(RunName, "\"" + Application.ExecutablePath + "\" --tray");
+                }
+            }
+            catch { }
+        }
+
         static bool IsStartup()
         {
             try
@@ -903,7 +998,7 @@ namespace EkranKurtar
                 e.Cancel = true;
                 Hide();
                 overlay.Hide();
-                if (cfg.Active) Raise(L.T("Ekran Kurtar tepside çalışmaya devam ediyor.", "Ekran Kurtar keeps running in the tray."));
+                if (cfg.Active) Raise(L.T("Broken Screen Resizer tepside çalışmaya devam ediyor.", "Broken Screen Resizer keeps running in the tray."));
                 return;
             }
             SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;

@@ -2,7 +2,7 @@ using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
 
-namespace EkranKurtar
+namespace BrokenScreenResizer
 {
     // NVIDIA NvAPI: sadece warp (görüntü bükme) için gereken kısım.
     // Fonksiyon kimlikleri NVIDIA'nın açık kaynak nvapi_interface.h dosyasından alınmıştır.
@@ -176,16 +176,14 @@ namespace EkranKurtar
             return f(id, ref d, out maxV, out st);
         }
 
-        // Sinyal içinde, kırık kenarın karşısına yaslanmış 1:1 hedef dikdörtgen
-        public static Rectangle Target(Edge edge, int srcW, int srcH, int tgtW, int tgtH)
+        // Sinyal içinde sağlam alana denk gelen 1:1 hedef dikdörtgen.
+        // Boşluk, bozuk kenarlara kesim oranında paylaştırılır (ör. sadece sol bozuksa sağa yaslanır).
+        public static Rectangle Target(Cuts c, int srcW, int srcH, int tgtW, int tgtH)
         {
-            switch (edge)
-            {
-                case Edge.Left: return new Rectangle(tgtW - srcW, (tgtH - srcH) / 2, srcW, srcH);
-                case Edge.Right: return new Rectangle(0, (tgtH - srcH) / 2, srcW, srcH);
-                case Edge.Top: return new Rectangle((tgtW - srcW) / 2, tgtH - srcH, srcW, srcH);
-                default: return new Rectangle((tgtW - srcW) / 2, 0, srcW, srcH);
-            }
+            int fx = Math.Max(0, tgtW - srcW), fy = Math.Max(0, tgtH - srcH);
+            int x = c.H > 0 ? (int)((long)fx * c.L / c.H) : fx / 2;
+            int y = c.V > 0 ? (int)((long)fy * c.T / c.V) : fy / 2;
+            return new Rectangle(x, y, srcW, srcH);
         }
     }
 }

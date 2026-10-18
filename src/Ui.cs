@@ -5,7 +5,7 @@ using System.Drawing.Text;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-namespace EkranKurtar
+namespace BrokenScreenResizer
 {
     // ------------------------------------------------------------------ Tema
     static class Theme
@@ -98,7 +98,7 @@ namespace EkranKurtar
         {
             try
             {
-                using (var st = typeof(Theme).Assembly.GetManifestResourceStream("EkranKurtar.logo.png"))
+                using (var st = typeof(Theme).Assembly.GetManifestResourceStream("BrokenScreenResizer.logo.png"))
                     if (st != null) return new Bitmap(st);
             }
             catch { }
@@ -110,7 +110,7 @@ namespace EkranKurtar
         {
             try
             {
-                using (var s = typeof(Theme).Assembly.GetManifestResourceStream("EkranKurtar.app.ico"))
+                using (var s = typeof(Theme).Assembly.GetManifestResourceStream("BrokenScreenResizer.app.ico"))
                     if (s != null) return new Icon(s, size, size);
             }
             catch { }
@@ -500,20 +500,29 @@ namespace EkranKurtar
     }
 
     // ------------------------------------------------------------------ Monitör önizlemesi (sürüklenebilir)
+    // Sağlam alan bir dikdörtgendir; dört kenarı ayrı ayrı sürüklenir, köşeden tutunca iki kenar birlikte,
+    // ortasından tutunca dikdörtgenin tamamı taşınır.
     class MonitorPreview : Ctl
     {
         public int SignalW = 1920, SignalH = 1080;
-        public Edge Edge = Edge.Left;
-        int cut = 480;
+        Cuts cuts = new Cuts(480, 0, 0, 0);
+        Edge focus = Edge.Left;
         public bool Applied;
         public string BrokenLabel = "", ResultLabel = "", AppliedLabel = "";
-        bool drag, nearLine;
-        public event Action<int> CutChanged;
+        public event Action<Cuts> CutsChanged;
+        public event Action<Edge> FocusChanged;
+
+        // sürükleme durumu
+        bool dragL, dragT, dragR, dragB, dragMove;
+        Point dragStart;
+        Cuts dragFrom;
+        // farenin üstünde olduğu kenarlar
+        bool hotL, hotT, hotR, hotB, hotMove;
 
         public MonitorPreview() { Cursor = Cursors.Default; }
 
-        public int Cut { get { return cut; } set { cut = value; Invalidate(); } }
-        bool Horizontal { get { return Edge == Edge.Left || Edge == Edge.Right; } }
+        public Cuts Cuts { get { return cuts; } set { cuts = value; Invalidate(); } }
+        public Edge FocusEdge { get { return focus; } set { focus = value; Invalidate(); } }
 
         RectangleF ScreenRect()
         {
@@ -526,89 +535,146 @@ namespace EkranKurtar
             return new RectangleF((Width - w) / 2f, bezel + Theme.P(2), w, h);
         }
 
-        float CutPx(RectangleF s)
-        {
-            return Horizontal ? cut * s.Width / SignalW : cut * s.Height / SignalH;
-        }
-
-        RectangleF CutRect(RectangleF s)
-        {
-            float c = CutPx(s);
-            switch (Edge)
-            {
-                case Edge.Left: return new RectangleF(s.X, s.Y, c, s.Height);
-                case Edge.Right: return new RectangleF(s.Right - c, s.Y, c, s.Height);
-                case Edge.Top: return new RectangleF(s.X, s.Y, s.Width, c);
-                default: return new RectangleF(s.X, s.Bottom - c, s.Width, c);
-            }
-        }
-
         RectangleF GoodRect(RectangleF s)
         {
-            float c = CutPx(s);
-            switch (Edge)
-            {
-                case Edge.Left: return new RectangleF(s.X + c, s.Y, s.Width - c, s.Height);
-                case Edge.Right: return new RectangleF(s.X, s.Y, s.Width - c, s.Height);
-                case Edge.Top: return new RectangleF(s.X, s.Y + c, s.Width, s.Height - c);
-                default: return new RectangleF(s.X, s.Y, s.Width, s.Height - c);
-            }
+            float kx = s.Width / Math.Max(1, SignalW), ky = s.Height / Math.Max(1, SignalH);
+            return new RectangleF(s.X + cuts.L * kx, s.Y + cuts.T * ky,
+                                  Math.Max(1, s.Width - cuts.H * kx), Math.Max(1, s.Height - cuts.V * ky));
         }
 
-        float LinePos(RectangleF s)
-        {
-            float c = CutPx(s);
-            switch (Edge)
-            {
-                case Edge.Left: return s.X + c;
-                case Edge.Right: return s.Right - c;
-                case Edge.Top: return s.Y + c;
-                default: return s.Bottom - c;
-            }
-        }
-
-        void SetFromMouse(Point p)
+        // Fare hangi kenar çizgilerine yakın?
+        void HitTest(Point p, out bool l, out bool t, out bool r, out bool b, out bool inside)
         {
             var s = ScreenRect();
-            float v;
-            switch (Edge)
+            var g = GoodRect(s);
+            float tol = Theme.P(9);
+            bool inY = p.Y >= g.Y - tol && p.Y <= g.Bottom + tol;
+            bool inX = p.X >= g.X - tol && p.X <= g.Right + tol;
+            l = inY && Math.Abs(p.X - g.X) < tol;
+            r = inY && Math.Abs(p.X - g.Right) < tol;
+            t = inX && Math.Abs(p.Y - g.Y) < tol;
+            b = inX && Math.Abs(p.Y - g.Bottom) < tol;
+            // çok dar alanda iki çizgi birden yakınsa en yakını seç
+            if (l && r) { if (Math.Abs(p.X - g.X) <= Math.Abs(p.X - g.Right)) r = false; else l = false; }
+            if (t && b) { if (Math.Abs(p.Y - g.Y) <= Math.Abs(p.Y - g.Bottom)) b = false; else t = false; }
+            inside = !(l || t || r || b) && g.Contains(p);
+        }
+
+        int SigX(float x, RectangleF s) { return (int)Math.Round((x - s.X) / s.Width * SignalW); }
+        int SigY(float y, RectangleF s) { return (int)Math.Round((y - s.Y) / s.Height * SignalH); }
+
+        void Drag(Point p)
+        {
+            var s = ScreenRect();
+            var c = dragFrom;
+            int maxW = SignalW * 2 / 3, maxH = SignalH * 2 / 3;
+            if (dragMove)
             {
-                case Edge.Left: v = (p.X - s.X) / s.Width * SignalW; break;
-                case Edge.Right: v = (s.Right - p.X) / s.Width * SignalW; break;
-                case Edge.Top: v = (p.Y - s.Y) / s.Height * SignalH; break;
-                default: v = (s.Bottom - p.Y) / s.Height * SignalH; break;
+                int dx = (int)Math.Round((p.X - dragStart.X) / s.Width * SignalW);
+                int dy = (int)Math.Round((p.Y - dragStart.Y) / s.Height * SignalH);
+                int nl = Math.Max(0, Math.Min(c.H, c.L + dx)), nt = Math.Max(0, Math.Min(c.V, c.T + dy));
+                c = new Cuts(nl, nt, c.H - nl, c.V - nt);
             }
-            int max = (Horizontal ? SignalW : SignalH) * 2 / 3;
-            int nv = Math.Max(0, Math.Min(max, (int)Math.Round(v)));
-            if (nv == cut) return;
-            cut = nv;
+            else
+            {
+                if (dragL) c.L = Math.Max(0, Math.Min(maxW - c.R, SigX(p.X, s)));
+                if (dragR) c.R = Math.Max(0, Math.Min(maxW - c.L, SignalW - SigX(p.X, s)));
+                if (dragT) c.T = Math.Max(0, Math.Min(maxH - c.B, SigY(p.Y, s)));
+                if (dragB) c.B = Math.Max(0, Math.Min(maxH - c.T, SignalH - SigY(p.Y, s)));
+            }
+            SetCuts(c);
+        }
+
+        void SetCuts(Cuts c)
+        {
+            if (c == cuts) return;
+            cuts = c;
             Invalidate();
-            var h = CutChanged;
-            if (h != null) h(nv);
+            var h = CutsChanged;
+            if (h != null) h(c);
+        }
+
+        void SetFocus(Edge e)
+        {
+            if (e == focus) return;
+            focus = e;
+            Invalidate();
+            var h = FocusChanged;
+            if (h != null) h(e);
         }
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
-            if (!Enabled || Applied) return;
-            if (ScreenRect().Contains(e.Location)) { drag = true; SetFromMouse(e.Location); }
+            if (!Enabled || Applied || e.Button != MouseButtons.Left) return;
+            var s = ScreenRect();
+            if (!RectangleF.Inflate(s, Theme.P(6), Theme.P(6)).Contains(e.Location)) return;
+            bool l, t, r, b, inside;
+            HitTest(e.Location, out l, out t, out r, out b, out inside);
+            dragStart = e.Location;
+            dragFrom = cuts;
+            if (l || t || r || b)
+            {
+                dragL = l; dragT = t; dragR = r; dragB = b;
+            }
+            else if (inside && cuts.Any)
+            {
+                dragMove = true;
+            }
+            else
+            {
+                // bozuk şeride ya da boş alana tıklandı: en yakın kenar oraya gelir
+                var g = GoodRect(s);
+                float dl = Math.Abs(e.X - g.X), dr = Math.Abs(e.X - g.Right), dt = Math.Abs(e.Y - g.Y), db = Math.Abs(e.Y - g.Bottom);
+                float m = Math.Min(Math.Min(dl, dr), Math.Min(dt, db));
+                dragL = m == dl; dragR = !dragL && m == dr; dragT = !dragL && !dragR && m == dt; dragB = !dragL && !dragR && !dragT;
+                Drag(e.Location);
+            }
+            if (dragL) SetFocus(Edge.Left);
+            else if (dragR) SetFocus(Edge.Right);
+            else if (dragT) SetFocus(Edge.Top);
+            else if (dragB) SetFocus(Edge.Bottom);
+            Capture = true;
+            Invalidate();
         }
 
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            if (drag) { SetFromMouse(e.Location); return; }
-            var s = ScreenRect();
-            float lp = LinePos(s);
-            bool near = Enabled && !Applied && s.Contains(e.Location) &&
-                Math.Abs((Horizontal ? e.X : e.Y) - lp) < Theme.P(10);
-            if (near != nearLine) { nearLine = near; Invalidate(); }
-            Cursor = !Enabled || Applied ? Cursors.Default
-                   : near ? (Horizontal ? Cursors.SizeWE : Cursors.SizeNS)
-                   : s.Contains(e.Location) ? Cursors.Hand : Cursors.Default;
+            if (dragL || dragT || dragR || dragB || dragMove) { Drag(e.Location); return; }
+            bool l = false, t = false, r = false, b = false, inside = false;
+            bool active = Enabled && !Applied;
+            if (active) HitTest(e.Location, out l, out t, out r, out b, out inside);
+            inside = inside && cuts.Any;
+            if (l != hotL || t != hotT || r != hotR || b != hotB || inside != hotMove)
+            {
+                hotL = l; hotT = t; hotR = r; hotB = b; hotMove = inside;
+                Invalidate();
+            }
+            bool onScreen = ScreenRect().Contains(e.Location);
+            Cursor = !active ? Cursors.Default
+                   : (l && t) || (r && b) ? Cursors.SizeNWSE
+                   : (r && t) || (l && b) ? Cursors.SizeNESW
+                   : l || r ? Cursors.SizeWE
+                   : t || b ? Cursors.SizeNS
+                   : inside ? Cursors.SizeAll
+                   : onScreen ? Cursors.Hand : Cursors.Default;
         }
 
-        protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); drag = false; }
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            dragL = dragT = dragR = dragB = dragMove = false;
+            Capture = false;
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            hotL = hotT = hotR = hotB = hotMove = false;
+            Invalidate();
+        }
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -632,80 +698,130 @@ namespace EkranKurtar
             Theme.Fill(g, frame, Theme.P(14), Color.FromArgb(12, 13, 16));
             Theme.Stroke(g, frame, Theme.P(14), Theme.Border, 1);
 
-            var cr = CutRect(s);
             var gr = GoodRect(s);
             var state = g.Save();
             using (var clip = Theme.Round(s, Theme.P(4))) g.SetClip(clip);
+
+            // bozuk alan (sağlam dikdörtgenin dışında kalan her yer)
+            if (cuts.Any)
+            {
+                var st2 = g.Save();
+                g.SetClip(gr, CombineMode.Exclude);
+                using (var b = new SolidBrush(Color.FromArgb(48, 16, 20))) g.FillRectangle(b, s);
+                using (var pen = new Pen(Color.FromArgb(110, Theme.Danger), Theme.P(3)))
+                    for (float d = -s.Height; d < s.Width + s.Height; d += Theme.P(12))
+                        g.DrawLine(pen, s.X + d, s.Bottom, s.X + d + s.Height, s.Y);
+                g.Restore(st2);
+            }
 
             // sağlam alan
             using (var b = new LinearGradientBrush(s, Theme.Mix(Theme.Accent, Theme.Bg, 0.55f), Theme.Mix(Theme.Accent, Theme.Bg, 0.8f), 45f))
                 g.FillRectangle(b, gr);
             using (var pen = new Pen(Color.FromArgb(18, Color.White), 1))
                 for (float gx = gr.X + Theme.P(24); gx < gr.Right; gx += Theme.P(24)) g.DrawLine(pen, gx, gr.Y, gx, gr.Bottom);
-
-            // bozuk alan
-            using (var b = new SolidBrush(Color.FromArgb(48, 16, 20))) g.FillRectangle(b, cr);
-            if (cr.Width > 0 && cr.Height > 0)
-            {
-                var st2 = g.Save();
-                g.SetClip(cr, CombineMode.Intersect);
-                using (var pen = new Pen(Color.FromArgb(110, Theme.Danger), Theme.P(3)))
-                    for (float d = -s.Height; d < s.Width + s.Height; d += Theme.P(12))
-                        g.DrawLine(pen, s.X + d, s.Bottom, s.X + d + s.Height, s.Y);
-                g.Restore(st2);
-            }
             g.Restore(state);
 
-            // ayırıcı çizgi ve tutamak
-            float lp = LinePos(s);
+            // kenar çizgileri ve tutamaklar
             bool active = Enabled && !Applied;
-            using (var pen = new Pen(active ? Color.White : Theme.Sub, Theme.P(nearLine || drag ? 3 : 2)))
+            foreach (var edge in Cuts.All)
             {
-                if (Horizontal) g.DrawLine(pen, lp, s.Y, lp, s.Bottom);
-                else g.DrawLine(pen, s.X, lp, s.Right, lp);
+                bool hot = Hot(edge);
+                Color col = !active ? Theme.Sub : Color.White;
+                PointF a, z;
+                switch (edge)
+                {
+                    case Edge.Left: a = new PointF(gr.X, gr.Y); z = new PointF(gr.X, gr.Bottom); break;
+                    case Edge.Right: a = new PointF(gr.Right, gr.Y); z = new PointF(gr.Right, gr.Bottom); break;
+                    case Edge.Top: a = new PointF(gr.X, gr.Y); z = new PointF(gr.Right, gr.Y); break;
+                    default: a = new PointF(gr.X, gr.Bottom); z = new PointF(gr.Right, gr.Bottom); break;
+                }
+                // kesilmemiş kenarın çizgisi ekran kenarında silik durur
+                int alpha = cuts[edge] > 0 || hot ? 255 : 90;
+                using (var pen = new Pen(Color.FromArgb(alpha, col), Theme.P(hot ? 3 : 2))) g.DrawLine(pen, a, z);
             }
             if (active)
-            {
-                var hr = Horizontal
-                    ? new RectangleF(lp - Theme.P(7), s.Y + s.Height / 2 - Theme.P(20), Theme.P(14), Theme.P(40))
-                    : new RectangleF(s.X + s.Width / 2 - Theme.P(20), lp - Theme.P(7), Theme.P(40), Theme.P(14));
-                Theme.Fill(g, hr, Theme.P(7), Color.White);
-                using (var b = new SolidBrush(Theme.Accent))
-                    for (int i = -1; i <= 1; i++)
-                    {
-                        float ox = Horizontal ? hr.X + hr.Width / 2 : hr.X + hr.Width / 2 + i * Theme.P(8);
-                        float oy = Horizontal ? hr.Y + hr.Height / 2 + i * Theme.P(8) : hr.Y + hr.Height / 2;
-                        g.FillEllipse(b, ox - Theme.P(2), oy - Theme.P(2), Theme.P(4), Theme.P(4));
-                    }
-            }
+                foreach (var edge in Cuts.All) DrawHandle(g, gr, edge);
 
             // etiketler
             using (var big = new Font(Font.FontFamily, Font.Size + 7f, FontStyle.Bold))
             using (var small = new Font(Font.FontFamily, Font.Size - 0.5f))
             {
-                int rw = Horizontal ? SignalW - cut : SignalW;
-                int rh = Horizontal ? SignalH : SignalH - cut;
+                int rw = SignalW - cuts.H, rh = SignalH - cuts.V;
                 string res = rw + " × " + rh;
                 var bigSize = g.MeasureString(res, big);
                 var smallSize = g.MeasureString(Applied ? AppliedLabel : ResultLabel, small);
                 float blockH = bigSize.Height + smallSize.Height;
-                if (gr.Width > bigSize.Width && gr.Height > blockH)
+                if (gr.Width > bigSize.Width && gr.Height > blockH + Theme.P(20))
                 {
                     float by = gr.Y + (gr.Height - blockH) / 2;
                     Theme.Draw(g, res, big, new RectangleF(gr.X, by, gr.Width, bigSize.Height), Color.White, StringAlignment.Center, StringAlignment.Center, false);
                     Theme.Draw(g, Applied ? AppliedLabel : ResultLabel, small, new RectangleF(gr.X, by + bigSize.Height, gr.Width, smallSize.Height),
                         Color.FromArgb(220, 230, 240), StringAlignment.Center, StringAlignment.Center, false);
                 }
+                else if (gr.Width > g.MeasureString(res, small).Width + Theme.P(8) && gr.Height > smallSize.Height + Theme.P(24))
+                    Theme.Draw(g, res, small, gr, Color.White, StringAlignment.Center, StringAlignment.Center, false);
+
+                // "Bozuk" etiketi en geniş bozuk şeride
                 var ls = g.MeasureString(BrokenLabel, small);
-                if (cr.Width > ls.Width + Theme.P(34) && cr.Height > ls.Height + Theme.P(34))
+                RectangleF best = RectangleF.Empty;
+                foreach (var edge in Cuts.All)
                 {
-                    float shift = Edge == Edge.Left ? -Theme.P(8) : Edge == Edge.Right ? Theme.P(8) : 0;
-                    var lr = new RectangleF(cr.X + shift + (cr.Width - ls.Width - Theme.P(12)) / 2, cr.Y + (Edge == Edge.Top ? -Theme.P(8) : Edge == Edge.Bottom ? Theme.P(8) : 0) + (cr.Height - ls.Height - Theme.P(4)) / 2,
+                    if (cuts[edge] <= 0) continue;
+                    var st = Strip(s, gr, edge);
+                    if (st.Width * st.Height > best.Width * best.Height) best = st;
+                }
+                if (best.Width > ls.Width + Theme.P(34) && best.Height > ls.Height + Theme.P(34))
+                {
+                    var lr = new RectangleF(best.X + (best.Width - ls.Width - Theme.P(12)) / 2, best.Y + (best.Height - ls.Height - Theme.P(4)) / 2,
                                             ls.Width + Theme.P(12), ls.Height + Theme.P(4));
                     Theme.Fill(g, lr, lr.Height / 2, Color.FromArgb(200, 20, 8, 10));
                     Theme.Draw(g, BrokenLabel, small, lr, Theme.Danger, StringAlignment.Center, StringAlignment.Center, false);
                 }
             }
+        }
+
+        bool Hot(Edge e)
+        {
+            switch (e)
+            {
+                case Edge.Left: return hotL || dragL;
+                case Edge.Right: return hotR || dragR;
+                case Edge.Top: return hotT || dragT;
+                default: return hotB || dragB;
+            }
+        }
+
+        static RectangleF Strip(RectangleF s, RectangleF g, Edge e)
+        {
+            switch (e)
+            {
+                case Edge.Left: return new RectangleF(s.X, s.Y, g.X - s.X, s.Height);
+                case Edge.Right: return new RectangleF(g.Right, s.Y, s.Right - g.Right, s.Height);
+                case Edge.Top: return new RectangleF(g.X, s.Y, g.Width, g.Y - s.Y);
+                default: return new RectangleF(g.X, g.Bottom, g.Width, s.Bottom - g.Bottom);
+            }
+        }
+
+        // Kenarın ortasındaki tutamak; seçili kenarınki vurgulu
+        void DrawHandle(Graphics g, RectangleF gr, Edge e)
+        {
+            bool v = Cuts.IsHorizontal(e);
+            float px = e == Edge.Left ? gr.X : e == Edge.Right ? gr.Right : gr.X + gr.Width / 2;
+            float py = e == Edge.Top ? gr.Y : e == Edge.Bottom ? gr.Bottom : gr.Y + gr.Height / 2;
+            float len = Math.Min(Theme.P(40), (v ? gr.Height : gr.Width) * 0.6f);
+            var hr = v ? new RectangleF(px - Theme.P(7), py - len / 2, Theme.P(14), len)
+                       : new RectangleF(px - len / 2, py - Theme.P(7), len, Theme.P(14));
+            bool sel = e == focus;
+            Theme.Fill(g, hr, Theme.P(7), sel ? Theme.Accent : Color.White);
+            if (sel) Theme.Stroke(g, hr, Theme.P(7), Color.White, Theme.P(2));
+            using (var b = new SolidBrush(sel ? Color.White : Theme.Accent))
+                for (int i = -1; i <= 1; i++)
+                {
+                    if (len < Theme.P(26) && i != 0) continue;
+                    float ox = v ? hr.X + hr.Width / 2 : hr.X + hr.Width / 2 + i * Theme.P(8);
+                    float oy = v ? hr.Y + hr.Height / 2 + i * Theme.P(8) : hr.Y + hr.Height / 2;
+                    g.FillEllipse(b, ox - Theme.P(2), oy - Theme.P(2), Theme.P(4), Theme.P(4));
+                }
         }
     }
 }
