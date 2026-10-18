@@ -5,6 +5,44 @@ Türkçe özet için [README](README.md#sürüm-geçmişi).
 
 > **Version numbers were reorganized with v1.0.** Earlier releases were renumbered into the 0.x range; their previous numbers are shown in brackets.
 
+## [1.6] - 2026-10-18 *(preview)*
+
+Pre-release from the `develop` branch. The stable release is still [1.01](#101---2026-10-18).
+
+### Added
+- **Windows tweaks** (new tab): dock the taskbar to a different edge on each monitor (bottom, top, left, right, or no taskbar).
+  - A drawing of the monitors: click an edge to move that monitor's taskbar there, or use the side buttons for the selected monitor.
+  - The main monitor uses the Windows taskbar, moved with Windows 11's `TaskbarLocation` setting. If that Windows build doesn't support it yet, the app says so and leaves the main taskbar where it was.
+  - Monitors on a different edge get the app's own taskbar: Start button, that monitor's windows with icons (click to activate or minimize, right-click menu), flashing alerts, clock and date. It reserves screen space as an AppBar and hides during full-screen apps. Windows' secondary taskbars are turned off while it runs.
+  - Icon alignment (center or left) and window names on the app's taskbars.
+  - The original taskbar settings are saved and restored by Revert, emergency reset (`--reset`) and uninstall. When the app closes, the Windows taskbars come back; at startup the layout is applied again.
+
+### Changed
+- The tabs are now "Broken screen", "Screen Multiplier" and "Windows tweaks".
+
+## [1.5] - 2026-10-18 *(preview)*
+
+Pre-release from the `develop` branch. The stable release is still [1.01](#101---2026-10-18).
+
+### Added
+- **Screen Multiplier** (new tab): splits a large monitor into up to 8 virtual screens, each a separate monitor in Windows.
+  - Monitor-shaped editor: drag screens and their edges or corners, with snapping to neighbours and an 8-pixel grid. **Add screen** and **Remove screen** buttons.
+  - Collisions: dragging into a neighbour first stops and shakes. Dragging the same way again pushes the neighbour and shrinks it to at least 640×360.
+  - Nine templates (2 side by side, 2 stacked, 3 columns, 1 large + 2, 2 × 2, 1 large + 3, 3 + 2, 3 × 2, 4 × 2). Templates that don't fit the monitor are disabled.
+  - Recommendations from pixel density: the monitor's physical size is read from its EDID (or entered by hand) and three tiers are suggested: *no quality loss*, *recommended* and *maximum*. For a 55″ 4K TV this gives 2 / 4 / 6.
+  - A note with the recommended maximum, and a distribution bar and table showing each screen's resolution, share of the monitor, size in inches and quality.
+  - The setting is restored at startup like the other modes. Revert, emergency reset and uninstall undo it.
+- The window title shows "(preview)" on preview builds.
+
+### Changed
+- **Virtual display driver 2.0** (protocol 2): up to 8 monitors (was 4), and several monitors of the same size can be open together. Older app versions keep working with the new driver. The app offers to update an older installed driver when Screen Multiplier needs it.
+- The virtual monitor mirror can now copy several virtual monitors at once.
+- CI publishes preview versions as GitHub pre-releases that are not marked "latest". It also builds the `develop` branch.
+
+### Fixed
+- Release builds made on GitHub embedded the driver's `.inf` with Windows line endings, so it no longer matched the signed catalog. Installing the virtual display driver from those files could then fail with a signature error. The signed driver package is now stored byte-for-byte (`.gitattributes`), and CI checks it against the catalog before building.
+- A few driver messages that appeared in English in the Chinese and Russian interface are now translated.
+
 ## [1.01] - 2026-10-18
 
 ### Changed

@@ -37,7 +37,14 @@ namespace BrokenScreenResizer
         const uint IOCTL_LIST = (0x22u << 16) | (0x903u << 2);
 
         public const int StatePending = 0, StateActive = 1, StateFailed = 2, StateRemoving = 3;
-        public const int MaxMonitors = 4;
+        public const int MaxMonitors = 8;          // liste tamponu için (sürücü protokol 2'nin sınırı)
+        public const int SplitProtocol = 2;        // Ekran Çoğaltıcı'nın istediği en düşük sürücü protokolü
+
+        public class DriverInfo
+        {
+            public int Version, MaxMonitors, MonitorCount;
+            public bool Ready;
+        }
 
         public class MonitorState
         {
@@ -107,6 +114,26 @@ namespace BrokenScreenResizer
             }
         }
 
+        public static DriverInfo Info()
+        {
+            var o = new byte[16];
+            int n;
+            if (!Call(IOCTL_INFO, null, o, out n) || n < 16) return null;
+            return new DriverInfo
+            {
+                Version = BitConverter.ToInt32(o, 0), MaxMonitors = BitConverter.ToInt32(o, 4),
+                Ready = BitConverter.ToInt32(o, 8) == 1, MonitorCount = BitConverter.ToInt32(o, 12)
+            };
+        }
+
+        // Kurulu sürücü Ekran Çoğaltıcı'yı bu kadar ekranla destekliyor mu?
+        // (v1.01 ve öncesiyle gelen sürücü en fazla 4 monitör açar ve aynı boyutta ikinci monitör açamaz)
+        public static bool SupportsSplit(int count)
+        {
+            var i = Info();
+            return i != null && i.Version >= SplitProtocol && i.MaxMonitors >= count;
+        }
+
         public static List<MonitorState> List()
         {
             var list = new List<MonitorState>();
@@ -122,12 +149,21 @@ namespace BrokenScreenResizer
             return list;
         }
 
-        // Dönüş: monitör kimliği (1..4) ya da 0
+        // Dönüş: monitör kimliği (1..8) ya da 0
         public static int Add(int w, int h, int hz)
         {
             var o = new byte[4];
             int n;
             if (!Call(IOCTL_ADD, Ints(w, h, hz), o, out n) || n < 4) return 0;
+            return BitConverter.ToInt32(o, 0);
+        }
+
+        // Aynı boyutta monitör olsa bile yenisini açar (protokol 2)
+        static int AddNew(int w, int h, int hz)
+        {
+            var o = new byte[4];
+            int n;
+            if (!Call(IOCTL_ADD, Ints(w, h, hz, 1), o, out n) || n < 4) return 0;
             return BitConverter.ToInt32(o, 0);
         }
 
@@ -213,6 +249,110 @@ namespace BrokenScreenResizer
         public static bool WaitReady(int timeoutMs)
         {
             return WaitUntil(() => Installed && AdapterReady, timeoutMs);
+        }
+
+        // Güncellenen sürücünün yeni sürümü başlayana kadar bekler
+        public static bool WaitSplit(int timeoutMs, int count)
+        {
+            return WaitUntil(() => Installed && AdapterReady && SupportsSplit(count), timeoutMs);
+        }
+
+        // Bizim ekran kartımızdaki, monitörü bağlı tüm GDI adları
+        static List<string> OurGdis()
+        {
+            var list = new List<string>();
+            var dd = new VNative.DISPLAY_DEVICE();
+            dd.cb = Marshal.SizeOf(typeof(VNative.DISPLAY_DEVICE));
+            for (uint i = 0; VNative.EnumDisplayDevices(null, i, ref dd, 0); i++)
+            {
+                if (IsOurAdapter(dd))
+                {
+                    var mon = new VNative.DISPLAY_DEVICE();
+                    mon.cb = Marshal.SizeOf(typeof(VNative.DISPLAY_DEVICE));
+                    if (VNative.EnumDisplayDevices(dd.DeviceName, 0, ref mon, 0)) list.Add(dd.DeviceName);
+                }
+                dd.cb = Marshal.SizeOf(typeof(VNative.DISPLAY_DEVICE));
+            }
+            return list;
+        }
+
+        // Her boyuta, o boyutu sunan farklı bir sanal monitör eşler; eksik varsa null
+        static string[] MatchGdis(IList<System.Drawing.Size> sizes)
+        {
+            var ours = OurGdis();
+            var used = new bool[ours.Count];
+            var res = new string[sizes.Count];
+            for (int i = 0; i < sizes.Count; i++)
+            {
+                for (int j = 0; j < ours.Count && res[i] == null; j++)
+                    if (!used[j] && HasMode(ours[j], sizes[i].Width, sizes[i].Height)) { res[i] = ours[j]; used[j] = true; }
+                if (res[i] == null) return null;
+            }
+            return res;
+        }
+
+        // Ekran Çoğaltıcı: istenen boyutlarda (aynı boyut birden çok olabilir) sanal monitörleri açar.
+        // gdis[i], sizes[i] boyutundaki monitörün GDI adıdır. Hata yoksa null döner.
+        public static string EnsureSet(IList<System.Drawing.Size> sizes, int hz, out string[] gdis)
+        {
+            gdis = null;
+            if (!WaitReady(15000))
+                return L.T("Sanal ekran sürücüsü hazır değil. Bilgisayarı yeniden başlatıp tekrar dene.",
+                           "The virtual display driver is not ready. Restart the computer and try again.");
+            if (!SupportsSplit(sizes.Count))
+                return L.T("Sanal ekran sürücüsü bu kadar ekranı desteklemiyor; güncellenmesi gerekiyor.",
+                           "The virtual display driver doesn't support this many screens; it needs an update.");
+
+            // eski monitörleri kapat, sonra hepsini sırayla yeniden aç
+            if (List().Count > 0)
+            {
+                Remove(0);
+                WaitUntil(() => List().Count == 0, 10000);
+            }
+            var ids = new List<int>();
+            foreach (var s in sizes)
+            {
+                int id = AddNew(s.Width, s.Height, hz);
+                if (id == 0)
+                {
+                    Remove(0);
+                    return L.T("Sanal monitör eklenemedi.", "Could not add the virtual monitor.") + " (" + (ids.Count + 1) + "/" + sizes.Count + ")";
+                }
+                ids.Add(id);
+            }
+
+            List<MonitorState> st = null;
+            WaitUntil(() =>
+            {
+                st = List();
+                foreach (int id in ids)
+                {
+                    var m = st.Find(x => x.Id == id);
+                    if (m != null && m.State == StatePending) return false;
+                }
+                return true;
+            }, 15000);
+            foreach (int id in ids)
+            {
+                var m = st == null ? null : st.Find(x => x.Id == id);
+                if (m == null || m.State != StateActive)
+                {
+                    Remove(0);
+                    return L.T("Windows sanal monitörü kabul etmedi", "Windows did not accept the virtual monitor") +
+                           (m != null ? " (0x" + m.Status.ToString("X8") + ")." : ".");
+                }
+            }
+
+            string[] found = null;
+            WaitUntil(() => (found = MatchGdis(sizes)) != null, 15000);
+            if (found == null)
+            {
+                Remove(0);
+                return L.T("Sanal monitör Windows'ta görünmedi. Bilgisayarı yeniden başlatıp tekrar dene.",
+                           "The virtual monitor did not appear in Windows. Restart the computer and try again.");
+            }
+            gdis = found;
+            return null;
         }
 
         // İstenen boyutta tek bir sanal monitör olmasını sağlar. Hata yoksa null döner.

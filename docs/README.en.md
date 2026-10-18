@@ -27,6 +27,8 @@
 - [Download and install](#download-and-install)
 - [How to use](#how-to-use)
 - [Methods](#methods)
+- [Screen Multiplier (preview)](#screen-multiplier-preview)
+- [Windows tweaks (preview)](#windows-tweaks-preview)
 - [Security and privacy](#security-and-privacy)
 - [Updating and uninstalling](#updating-and-uninstalling)
 - [Troubleshooting](#troubleshooting)
@@ -100,6 +102,43 @@ With **Start with Windows** turned on, your setup is applied automatically at ev
 | When the app is closed | The app must keep running | The app must keep running; closing it restores the display layout |
 
 If the virtual monitor method fails, the app changes nothing and offers to use software mode instead.
+
+## Screen Multiplier (preview)
+
+> **Preview release.** This feature is in the [v1.5](https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v1.5) pre-release and is not stable yet. The stable release is **v1.01**. If something goes wrong, please [report it](https://github.com/HErkanuzun/BrokenScreenResizer/issues).
+
+Splits a large monitor (for example a 4K TV) into several separate monitors. Each part becomes a real monitor in Windows: a maximized window fills only its own part, and Windows + arrow keys move windows between parts.
+
+- **Layout.** In the **Screen Multiplier** tab at the top, you drag and resize screens on the monitor drawing. Edges snap to neighbouring screens and to an 8-pixel grid. **Add screen** adds a screen in the empty space or by splitting the largest screen in two. **Remove screen** deletes the selected one. Up to 8 screens.
+- **Collisions.** When you drag a screen into its neighbour, it first stops and shakes. Drag the same way again and it shrinks the neighbour, down to the minimum size (640×360).
+- **Templates.** 2 side by side, 2 stacked, 3 columns, 1 large + 2, 2 × 2, 1 large + 3, 3 + 2, 3 × 2, 4 × 2. Templates that don't fit the monitor are faded.
+- **Recommendations.** The app reads the monitor's size from its own data (EDID) and calculates the pixel density (PPI). From that it gives three recommendations: no quality loss, recommended, and maximum. For a 55″ 4K TV, for example: 2 / 4 / 6 screens. If the size can't be read, you can enter the inches yourself.
+- **Distribution.** Lists each screen's resolution, its share of the monitor, its size in inches and its quality.
+
+| Quality | At least |
+|---|---|
+| Sharp | 3.5 MP and 20″ |
+| Good | 1.9 MP and 14″ |
+| Usable | 1.2 MP and 10″ |
+
+**How it works:** a virtual monitor is opened for each part, the physical monitor is moved behind them, and each virtual monitor's image is copied to its place on the physical monitor (the same technique as the virtual monitor method). So the app must keep running; when it closes, the display layout goes back to how it was. v1.5 uses a new version (2.0) of the virtual display driver. The first time, Windows asks once for administrator permission to update it. Broken-screen mode works with the new driver too.
+
+The broken-screen setting and Screen Multiplier can't be active at the same time; press **Revert** first to switch from one to the other.
+
+## Windows tweaks (preview)
+
+> **Preview release.** This feature is in the [v1.6](https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v1.6) pre-release and is not stable yet. The stable release is **v1.01**. If something goes wrong, please [report it](https://github.com/HErkanuzun/BrokenScreenResizer/issues).
+
+Docks the taskbar to a different edge on each monitor: for example at the bottom of the main monitor, on the left of the monitor to the right and at the top of the monitor above. You can also leave a monitor with no taskbar at all.
+
+- **Choosing.** The **Windows tweaks** tab shows a drawing of your monitors. Click a monitor's edge to move its taskbar there, or select the monitor and use the **Bottom / Top / Left / Right / No taskbar** buttons. **Apply** turns it on; **Revert** puts everything back.
+- **The main monitor** always uses the Windows taskbar itself (Start, system tray, notifications). Its edge is changed with Windows 11's "Taskbar position" setting.
+- **Other monitors** keep the Windows taskbar when they use the same edge as the main one. On monitors with a different edge the app draws its own taskbar: a Start button, the open windows on that monitor (click to bring forward or minimize, right-click for a menu), flashing-window alerts and a clock. It reserves screen space like the Windows taskbar, so maximized windows don't cover it, and it hides during full-screen games and videos.
+- **Icon alignment** (center or left) and showing window names on the app's taskbars can be changed.
+
+**Why two kinds of taskbar?** Windows 11's taskbar has one position, which applies to every monitor; it can't use a different edge per monitor. So on monitors that need a different edge, Windows' secondary taskbars are turned off and the app's taskbar takes their place. When the app closes, the Windows taskbars come back; when it starts, the setting is applied again.
+
+**Note:** moving the taskbar away from the bottom came to Windows 11 in 2026 as a gradual Windows Update rollout. If your Windows doesn't support it yet, the main monitor's taskbar stays at the bottom and the app tells you; the other monitors' settings are still applied. The app only changes per-user taskbar settings. It saves the original values and writes them back on **Revert**, **emergency reset** or uninstall.
 
 ## Security and privacy
 
@@ -209,6 +248,8 @@ docs/         READMEs in other languages and images
 
 Details: [CHANGELOG.md](../CHANGELOG.md) · All releases: [Releases](https://github.com/HErkanuzun/BrokenScreenResizer/releases)
 
+- **v1.6 (preview)** — Windows tweaks: dock the taskbar to any edge on each monitor (bottom, top, left, right or none). The Windows taskbar on the main monitor, the app's own taskbar on the others when needed. Not a stable release.
+- **v1.5 (preview)** — Screen Multiplier: split a large monitor into up to 8 separate screens. Drag-and-push editor, templates, three recommendations based on pixel density. Virtual display driver 2.0. Not a stable release.
 - **v1.01** — Content is centered in wide and fullscreen windows. While a setting is applied, the parts that can't be changed are faded and marked as locked, and Revert is highlighted.
 - **v1.0** — First stable release: installer (updates or installs), version-aware startup, no red screen and no default cut at startup, antivirus-friendly uninstall, verifiable release files.
 - **v0.7** — Driver mode removed; complete uninstall; UI that fits small screens.

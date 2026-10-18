@@ -27,6 +27,8 @@
 - [Kurulum](#kurulum)
 - [Kullanım](#kullanım)
 - [Yöntemler](#yöntemler)
+- [Ekran Çoğaltıcı (önizleme)](#ekran-çoğaltıcı-önizleme)
+- [Windows düzenlemeleri (önizleme)](#windows-düzenlemeleri-önizleme)
 - [Güvenlik ve gizlilik](#güvenlik-ve-gizlilik)
 - [Güncelleme ve kaldırma](#güncelleme-ve-kaldırma)
 - [Sorun giderme](#sorun-giderme)
@@ -100,6 +102,43 @@ gh attestation verify .\BrokenScreenResizer-1.01-Setup.exe --repo HErkanuzun/Bro
 | Program kapalıyken | Program çalışmalı | Program çalışmalı; kapanınca ekran düzeni eski haline döner |
 
 Sanal monitör yöntemi başarısız olursa program hiçbir şeyi değiştirmeden yazılım moduna geçmeyi önerir.
+
+## Ekran Çoğaltıcı (önizleme)
+
+> **Önizleme sürümü.** Bu özellik [v1.5](https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v1.5) ön sürümündedir ve henüz kararlı değildir. Kararlı sürüm **v1.01**'dir. Sorun görürsen [bildir](https://github.com/HErkanuzun/BrokenScreenResizer/issues).
+
+Büyük bir monitörü (örneğin 4K bir TV) birkaç ayrı monitöre böler. Her parça Windows'ta gerçek bir monitör olur: büyütülen pencere sadece kendi parçasını kaplar, Windows + ok tuşlarıyla parçalar arasında taşınır.
+
+- **Yerleşim.** Üstteki **Ekran Çoğaltıcı** sekmesinde ekranları monitör çiziminde sürükleyip boyutlandırırsın. Kenarlar komşu ekranlara ve 8 piksellik ızgaraya yapışır. **Ekran ekle** boş alana ya da en büyük ekranı ikiye bölerek yeni ekran ekler. **Ekranı kaldır** seçili ekranı siler. En fazla 8 ekran açılabilir.
+- **Çarpışma.** Bir ekranı komşusuna doğru sürüklersen önce durur ve titrer. Aynı yöne bir daha sürüklersen komşuyu en küçük boyutuna (640×360) kadar küçültür.
+- **Şablonlar.** 2 yan yana, 2 üst üste, 3 sütun, 1 büyük + 2, 2 × 2, 1 büyük + 3, 3 + 2, 3 × 2, 4 × 2. Monitöre sığmayan şablonlar soluk görünür.
+- **Öneriler.** Program monitörün boyutunu monitörün kendi bilgisinden (EDID) okur ve piksel yoğunluğunu (PPI) hesaplar. Buna göre üç öneri verir: kalite kaybı olmadan, önerilen ve en fazla. Örneğin 55″ 4K bir TV için 2 / 4 / 6 ekran. Boyut okunamazsa inç değerini elle girebilirsin.
+- **Dağılım.** Her ekranın çözünürlüğü, monitörün yüzde kaçını kapladığı, kaç inç olduğu ve kalitesi listelenir.
+
+| Kalite | En az |
+|---|---|
+| Keskin | 3,5 MP ve 20″ |
+| İyi | 1,9 MP ve 14″ |
+| Kullanılabilir | 1,2 MP ve 10″ |
+
+**Nasıl çalışır:** her parça için bir sanal monitör açılır, fiziksel monitör bunların arkasına alınır ve her sanal monitörün görüntüsü fiziksel monitördeki yerine kopyalanır (sanal monitör yöntemiyle aynı teknik). Bu yüzden program çalışmaya devam etmelidir; kapanınca ekran düzeni eski haline döner. v1.5, sanal ekran sürücüsünün yeni sürümünü (2.0) kullanır. İlk kullanımda sürücüyü güncellemek için bir kez yönetici izni istenir. Bozuk ekran modu yeni sürücüyle de çalışır.
+
+Bozuk ekran ayarı ile Ekran Çoğaltıcı aynı anda kullanılamaz; birinden diğerine geçmek için önce **Geri al**'a bas.
+
+## Windows düzenlemeleri (önizleme)
+
+> **Önizleme sürümü.** Bu özellik [v1.6](https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v1.6) ön sürümündedir ve henüz kararlı değildir. Kararlı sürüm **v1.01**'dir. Sorun görürsen [bildir](https://github.com/HErkanuzun/BrokenScreenResizer/issues).
+
+Görev çubuğunu her monitörde ayrı bir kenara yaslar: örneğin ana monitörde altta, sağdaki monitörde solda, üstteki monitörde yukarıda. İstersen bir monitörü tamamen çubuksuz bırakabilirsin.
+
+- **Seçim.** Üstteki **Windows düzenlemeleri** sekmesinde monitörlerin çizimi görünür. Bir monitörün kenarına tıklayınca çubuk oraya geçer; ya da monitörü seçip **Alt / Üst / Sol / Sağ / Çubuk yok** düğmelerini kullanırsın. **Uygula** ile etkinleşir, **Geri al** her şeyi eski haline döndürür.
+- **Ana monitör** her zaman Windows'un kendi görev çubuğunu kullanır (Başlat, sistem tepsisi, bildirimler). Kenarı Windows 11'in "Görev çubuğu konumu" ayarıyla değiştirilir.
+- **Diğer monitörler** ana monitörle aynı kenardaysa hepsinde Windows'un çubuğu kalır. Farklı kenar seçilen monitörlere program kendi görev çubuğunu çizer: Başlat düğmesi, o monitördeki açık pencereler (tıkla: öne getir / küçült, sağ tık: menü), yanıp sönen pencere uyarısı ve saat. Bu çubuk da Windows'unki gibi ekranda yer ayırır; büyütülen pencereler üstüne binmez. Tam ekran oyun ve videolarda kendini gizler.
+- **Simge hizası** (ortada / solda) ve programın çubuğunda pencere adlarının gösterilmesi ayarlanabilir.
+
+**Neden iki çeşit çubuk?** Windows 11'in görev çubuğu tek bir konum alır ve bu konum tüm monitörlere uygulanır; monitör başına ayrı kenar seçilemez. Bu yüzden farklı kenar istenen monitörlerde Windows'un ikincil çubukları kapatılır ve yerine programın çubuğu konur. Program kapanınca Windows'un çubukları geri gelir, açılınca ayar yeniden uygulanır.
+
+**Not:** Görev çubuğunu alt dışındaki bir kenara taşıma özelliği Windows 11'e 2026'da Windows Update ile kademeli olarak geldi. Windows'un henüz bunu desteklemiyorsa ana monitördeki çubuk altta kalır ve program bunu söyler; diğer monitörlerin ayarı yine uygulanır. Program yalnızca kullanıcıya ait görev çubuğu ayarlarını değiştirir; ilk değerleri saklar ve **Geri al**, **acil sıfırlama** ya da kaldırma sırasında geri yazar.
 
 ## Güvenlik ve gizlilik
 
@@ -209,6 +248,8 @@ docs/         Diğer dillerde README ve görseller
 
 Ayrıntılar: [CHANGELOG.md](CHANGELOG.md) · Tüm sürümler: [Releases](https://github.com/HErkanuzun/BrokenScreenResizer/releases)
 
+- **v1.6 (önizleme)** — Windows düzenlemeleri: görev çubuğunu her monitörde istediğin kenara yasla (alt, üst, sol, sağ ya da çubuksuz). Ana monitörde Windows'un çubuğu, diğerlerinde gerekirse programın kendi çubuğu. Kararlı sürüm değildir.
+- **v1.5 (önizleme)** — Ekran Çoğaltıcı: büyük bir monitörü 8'e kadar ayrı ekrana böl. Sürükle ve it düzenleyici, şablonlar, piksel yoğunluğuna göre üç öneri. Sanal ekran sürücüsü 2.0. Kararlı sürüm değildir.
 - **v1.01** — Geniş pencerede ve tam ekranda içerik ortalanır. Ayar uygulanınca değiştirilemeyen kısımlar sisli görünür, kilit etiketi çıkar ve Geri al öne çıkar.
 - **v1.0** — İlk kararlı sürüm: kurulum paketi (varsa günceller, yoksa kurar), sürüm bilinçli açılış, açılışta kırmızı ekran ve varsayılan kesim yok, antivirüs dostu kaldırma, doğrulanabilir sürüm dosyaları.
 - **v0.7** — Sürücü modu kaldırıldı; tam kaldırma; küçük ekranlara uyumlu arayüz.

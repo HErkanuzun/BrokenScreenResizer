@@ -2,7 +2,7 @@ name: build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
     tags: [ 'v*' ]
   pull_request:
 
@@ -29,7 +29,21 @@ jobs:
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$v") {
             throw "Etiket ($env:GITHUB_REF_NAME) ile program sürümü (v$v) aynı değil"
           }
+          # kanal: "stable" (main) ya da "preview" (develop) -> GitHub'da ön sürüm olarak yayınlanır
+          $ch = [regex]::Match($info, 'Channel\s*=\s*"([^"]+)"').Groups[1].Value
+          if (-not $ch) { $ch = 'stable' }
           "version=$v" >> $env:GITHUB_OUTPUT
+          "prerelease=$(if ($ch -eq 'stable') { 'false' } else { 'true' })" >> $env:GITHUB_OUTPUT
+          Write-Host "Sürüm $v, kanal $ch"
+
+      - name: Verify driver package
+        shell: pwsh
+        run: |
+          # .inf'in bugünkü baytları katalogdaki özetle aynı olmalı (satır sonu değişirse sürücü kurulamaz)
+          $cat = [BitConverter]::ToString([IO.File]::ReadAllBytes('driver/package/brokenscreenresizervdd.cat')).Replace('-', '')
+          $h = (Get-FileHash driver/package/BrokenScreenResizerVDD.inf -Algorithm SHA256).Hash
+          if (-not $cat.Contains($h)) { throw 'driver/package/BrokenScreenResizerVDD.inf katalogdaki özetle uyuşmuyor (satır sonları değişmiş olabilir)' }
+          Write-Host 'Sürücü paketi katalogla uyumlu.'
 
       - name: Build
         shell: cmd
@@ -67,3 +81,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          prerelease: ${{ steps.version.outputs.prerelease }}
+          make_latest: ${{ steps.version.outputs.prerelease == 'true' && 'false' || 'true' }}
