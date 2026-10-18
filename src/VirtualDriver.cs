@@ -12,19 +12,22 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32.SafeHandles;
 
-namespace EkranKurtar
+namespace BrokenScreenResizer
 {
     // ===================================================================================
-    // Ekran Kurtar'ın kendi sanal ekran sürücüsü (driver\ klasörü) ile iletişim.
+    // Broken Screen Resizer'ın kendi sanal ekran sürücüsü (driver\ klasörü) ile iletişim.
     //  - Sürücü exe'nin içine gömülüdür; "Sanal monitör" ilk kez uygulanırken kurulur (DriverSetup).
     //  - Uygulama sürücünün aygıt arayüzünü açıp IOCTL ile istediği boyutta sanal monitör ekler/kaldırır.
     // Değerler driver\Public.h ile aynı olmalı.
     // ===================================================================================
     static class Vdd
     {
-        public const string HardwareId = @"Root\EkranKurtarVDD";
-        public const string DeviceName = "Ekran Kurtar Virtual Display";
-        static Guid InterfaceGuid = new Guid("0a6a5c96-5488-4fff-99ca-e8bd1cb17733");
+        public const string HardwareId = @"Root\BrokenScreenResizerVDD";
+        // v1.5 öncesi ("Ekran Kurtar") sürücünün kimliği: kurulumda kaldırılır
+        public const string LegacyHardwareId = @"Root\EkranKurtarVDD";
+        public const string LegacyCertSubject = "CN=Ekran Kurtar Driver Signing";
+        public const string DeviceName = "Broken Screen Resizer Virtual Display";
+        static Guid InterfaceGuid = new Guid("69a8bde3-4c78-4ba6-ad55-75a6b2760ca4");
 
         const uint IOCTL_INFO = (0x22u << 16) | (0x900u << 2);
         const uint IOCTL_ADD = (0x22u << 16) | (0x901u << 2);
@@ -141,7 +144,9 @@ namespace EkranKurtar
         // ------------------------------------------------------------------ Windows tarafı (GDI adları)
         static bool IsOurAdapter(VNative.DISPLAY_DEVICE dd)
         {
-            return (dd.DeviceID ?? "").IndexOf("EkranKurtarVDD", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            string id = dd.DeviceID ?? "";
+            return id.IndexOf("BrokenScreenResizerVDD", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   id.IndexOf("EkranKurtarVDD", StringComparison.OrdinalIgnoreCase) >= 0 ||
                    string.Equals(dd.DeviceString, DeviceName, StringComparison.OrdinalIgnoreCase);
         }
 
@@ -251,12 +256,12 @@ namespace EkranKurtar
     static class DriverSetup
     {
         public const int Ok = 0, Cancelled = 1223;
-        const string ResPrefix = "EkranKurtar.driver.";
-        static readonly string[] Files = { "EkranKurtarVDD.dll", "EkranKurtarVDD.inf", "EkranKurtarVDD.cat", "EkranKurtarVDD.cer" };
+        const string ResPrefix = "BrokenScreenResizer.driver.";
+        static readonly string[] Files = { "BrokenScreenResizerVDD.dll", "BrokenScreenResizerVDD.inf", "BrokenScreenResizerVDD.cat", "BrokenScreenResizerVDD.cer" };
 
         static string WorkDir
         {
-            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), @"EkranKurtar\driver"); }
+            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), @"BrokenScreenResizer\driver"); }
         }
         static string LogPath { get { return Path.Combine(WorkDir, "install.log"); } }
 
@@ -295,6 +300,9 @@ namespace EkranKurtar
         static extern bool UpdateDriverForPlugAndPlayDevicesW(IntPtr hwnd, string hardwareId, string infPath, int flags, out bool reboot);
         [DllImport("newdev.dll", SetLastError = true, CharSet = CharSet.Unicode)]
         static extern bool DiUninstallDriverW(IntPtr hwnd, string infPath, int flags, out bool reboot);
+        [DllImport("setupapi.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        static extern bool SetupUninstallOEMInfW(string infFileName, int flags, IntPtr reserved);
+        const int SUOI_FORCEDELETE = 1;
 
         // ------------------------------------------------------------------ Yardımcılar
         public static bool Embedded
@@ -338,7 +346,7 @@ namespace EkranKurtar
 
         static X509Certificate2 Cert()
         {
-            return new X509Certificate2(File.ReadAllBytes(Path.Combine(WorkDir, "EkranKurtarVDD.cer")));
+            return new X509Certificate2(File.ReadAllBytes(Path.Combine(WorkDir, "BrokenScreenResizerVDD.cer")));
         }
 
         static void TrustCert(bool add)
@@ -369,6 +377,11 @@ namespace EkranKurtar
         // Bizim donanım kimliğimize sahip aygıtlar için işlem yapar; aygıt sayısını döndürür
         static int ForEachDevice(Action<IntPtr, SP_DEVINFO_DATA> action)
         {
+            return ForEachDevice(Vdd.HardwareId, action);
+        }
+
+        static int ForEachDevice(string hardwareId, Action<IntPtr, SP_DEVINFO_DATA> action)
+        {
             IntPtr set = SetupDiGetClassDevsW(IntPtr.Zero, null, IntPtr.Zero, DIGCF_ALLCLASSES);
             if (set == INVALID) return 0;
             int count = 0;
@@ -379,7 +392,7 @@ namespace EkranKurtar
                 for (int i = 0; SetupDiEnumDeviceInfo(set, i, ref d); i++)
                 {
                     foreach (var id in HardwareIds(set, ref d))
-                        if (string.Equals(id, Vdd.HardwareId, StringComparison.OrdinalIgnoreCase))
+                        if (string.Equals(id, hardwareId, StringComparison.OrdinalIgnoreCase))
                         {
                             count++;
                             if (action != null) action(set, d);
@@ -413,6 +426,45 @@ namespace EkranKurtar
             finally { SetupDiDestroyDeviceInfoList(set); }
         }
 
+        // Eski adlı sürücüyü (Ekran Kurtar, v1.5 öncesi) kaldırır: aygıt, sürücü paketi, sertifika
+        static void RemoveLegacy()
+        {
+            try
+            {
+                int n = ForEachDevice(Vdd.LegacyHardwareId, (set, d) => SetupDiCallClassInstaller(DIF_REMOVE, set, ref d));
+                if (n > 0) Log("Eski sürücünün aygıtı kaldırıldı: " + n);
+
+                string infDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "INF");
+                foreach (var f in Directory.GetFiles(infDir, "oem*.inf"))
+                {
+                    string text;
+                    try { text = File.ReadAllText(f); } catch { continue; }
+                    if (text.IndexOf("EkranKurtarVDD", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    bool ok = SetupUninstallOEMInfW(Path.GetFileName(f), SUOI_FORCEDELETE, IntPtr.Zero);
+                    Log("Eski sürücü paketi " + Path.GetFileName(f) + ": " + (ok ? "kaldırıldı" : "kaldırılamadı (" + Marshal.GetLastWin32Error() + ")"));
+                }
+
+                foreach (var name in new[] { StoreName.Root, StoreName.TrustedPublisher })
+                {
+                    var st = new X509Store(name, StoreLocation.LocalMachine);
+                    st.Open(OpenFlags.ReadWrite);
+                    try
+                    {
+                        foreach (var c in st.Certificates.Find(X509FindType.FindBySubjectDistinguishedName, Vdd.LegacyCertSubject, false))
+                        {
+                            st.Remove(c);
+                            Log("Eski sertifika kaldırıldı (" + name + "): " + c.Thumbprint);
+                        }
+                    }
+                    finally { st.Close(); }
+                }
+
+                string oldDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), Settings.LegacyName);
+                if (Directory.Exists(oldDir)) try { Directory.Delete(oldDir, true); } catch { }
+            }
+            catch (Exception ex) { Log("Eski sürücü temizliği: " + ex.Message); }
+        }
+
         // ------------------------------------------------------------------ Kurulum (yönetici)
         public static int Install()
         {
@@ -421,6 +473,7 @@ namespace EkranKurtar
                 if (!IsAdmin) return 5; // ERROR_ACCESS_DENIED
                 if (!Embedded) { Log("Sürücü paketi exe'ye gömülü değil."); return 2; }
                 Log("Kurulum başladı.");
+                RemoveLegacy();
                 Extract();
                 TrustCert(true);
                 Log("Sertifika eklendi: " + Cert().Thumbprint);
@@ -433,7 +486,7 @@ namespace EkranKurtar
                 }
 
                 bool reboot;
-                string inf = Path.Combine(WorkDir, "EkranKurtarVDD.inf");
+                string inf = Path.Combine(WorkDir, "BrokenScreenResizerVDD.inf");
                 if (!UpdateDriverForPlugAndPlayDevicesW(IntPtr.Zero, Vdd.HardwareId, inf, INSTALLFLAG_FORCE, out reboot))
                 {
                     int e = Marshal.GetLastWin32Error();
@@ -457,13 +510,14 @@ namespace EkranKurtar
                 if (!IsAdmin) return 5;
                 Log("Kaldırma başladı.");
                 Vdd.RemoveAll();
+                RemoveLegacy();
                 int n = ForEachDevice((set, d) => SetupDiCallClassInstaller(DIF_REMOVE, set, ref d));
                 Log("Kaldırılan aygıt: " + n);
                 if (Embedded)
                 {
                     Extract();
                     bool reboot;
-                    if (!DiUninstallDriverW(IntPtr.Zero, Path.Combine(WorkDir, "EkranKurtarVDD.inf"), 0, out reboot))
+                    if (!DiUninstallDriverW(IntPtr.Zero, Path.Combine(WorkDir, "BrokenScreenResizerVDD.inf"), 0, out reboot))
                         Log("Sürücü paketi kaldırılamadı: " + Marshal.GetLastWin32Error());
                     TrustCert(false);
                     Log("Sertifika kaldırıldı.");

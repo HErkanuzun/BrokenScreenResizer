@@ -1,8 +1,8 @@
-// Ekran Kurtar sanal ekran sürücüsü (IddCx / UMDF 2).
+// Broken Screen Resizer sanal ekran sürücüsü (IddCx / UMDF 2).
 //
 // Ne yapar:
-//  - Windows'a "Ekran Kurtar Virtual Display" adında bir ekran kartı tanıtır (başta monitörsüz).
-//  - Ekran Kurtar uygulaması aygıt arayüzü üzerinden IOCTL gönderip istediği çözünürlükte
+//  - Windows'a "Broken Screen Resizer Virtual Display" adında bir ekran kartı tanıtır (başta monitörsüz).
+//  - Broken Screen Resizer uygulaması aygıt arayüzü üzerinden IOCTL gönderip istediği çözünürlükte
 //    sanal monitör ekler / kaldırır (bkz. Public.h).
 //  - Her sanal monitör tam olarak istenen çözünürlüğü sunar; böylece Windows onu
 //    "sağlam alan" boyutunda gerçek bir monitör gibi kullanır.
@@ -13,23 +13,23 @@
 
 using namespace std;
 using namespace Microsoft::WRL;
-using namespace EkVdd;
+using namespace BsrVdd;
 
 extern "C" DRIVER_INITIALIZE DriverEntry;
 
-EVT_WDF_DRIVER_DEVICE_ADD EkVddDeviceAdd;
-EVT_WDF_DEVICE_D0_ENTRY EkVddDeviceD0Entry;
+EVT_WDF_DRIVER_DEVICE_ADD BsrVddDeviceAdd;
+EVT_WDF_DEVICE_D0_ENTRY BsrVddDeviceD0Entry;
 
-EVT_IDD_CX_DEVICE_IO_CONTROL EkVddDeviceIoControl;
-EVT_IDD_CX_ADAPTER_INIT_FINISHED EkVddAdapterInitFinished;
-EVT_IDD_CX_ADAPTER_COMMIT_MODES EkVddAdapterCommitModes;
+EVT_IDD_CX_DEVICE_IO_CONTROL BsrVddDeviceIoControl;
+EVT_IDD_CX_ADAPTER_INIT_FINISHED BsrVddAdapterInitFinished;
+EVT_IDD_CX_ADAPTER_COMMIT_MODES BsrVddAdapterCommitModes;
 
-EVT_IDD_CX_PARSE_MONITOR_DESCRIPTION EkVddParseMonitorDescription;
-EVT_IDD_CX_MONITOR_GET_DEFAULT_DESCRIPTION_MODES EkVddMonitorGetDefaultModes;
-EVT_IDD_CX_MONITOR_QUERY_TARGET_MODES EkVddMonitorQueryModes;
+EVT_IDD_CX_PARSE_MONITOR_DESCRIPTION BsrVddParseMonitorDescription;
+EVT_IDD_CX_MONITOR_GET_DEFAULT_DESCRIPTION_MODES BsrVddMonitorGetDefaultModes;
+EVT_IDD_CX_MONITOR_QUERY_TARGET_MODES BsrVddMonitorQueryModes;
 
-EVT_IDD_CX_MONITOR_ASSIGN_SWAPCHAIN EkVddMonitorAssignSwapChain;
-EVT_IDD_CX_MONITOR_UNASSIGN_SWAPCHAIN EkVddMonitorUnassignSwapChain;
+EVT_IDD_CX_MONITOR_ASSIGN_SWAPCHAIN BsrVddMonitorAssignSwapChain;
+EVT_IDD_CX_MONITOR_UNASSIGN_SWAPCHAIN BsrVddMonitorUnassignSwapChain;
 
 static void Log(const wchar_t* fmt, ...)
 {
@@ -38,7 +38,7 @@ static void Log(const wchar_t* fmt, ...)
     va_start(args, fmt);
     _vsnwprintf_s(buf, _TRUNCATE, fmt, args);
     va_end(args);
-    OutputDebugStringW(L"[EkranKurtarVDD] ");
+    OutputDebugStringW(L"[BrokenScreenResizerVDD] ");
     OutputDebugStringW(buf);
     OutputDebugStringW(L"\n");
 }
@@ -51,7 +51,7 @@ static void Log(const wchar_t* fmt, ...)
 // yanlış mod seçmez.
 // ===================================================================================
 static const BYTE EdidHeader[8] = { 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00 };
-static const BYTE EdidVendor[2] = { 0x15, 0x72 }; // "EKR"
+static const BYTE EdidVendor[2] = { 0x0A, 0x72 }; // "BSR"
 
 static void BuildEdid(BYTE edid[128], UINT width, UINT height, UINT refresh, UINT id)
 {
@@ -121,7 +121,7 @@ static void BuildEdid(BYTE edid[128], UINT width, UINT height, UINT refresh, UIN
     // Tanımlayıcı 2: monitör adı
     d = edid + 72;
     d[3] = 0xFC;
-    const char name[13] = { 'E','k','r','a','n','K','u','r','t','a','r','\n',' ' };
+    const char name[13] = { 'B','S','R',' ','V','i','r','t','u','a','l','\n',' ' };
     memcpy(d + 5, name, 13);
 
     // Tanımlayıcı 3 ve 4: boş (dummy)
@@ -136,8 +136,8 @@ static void BuildEdid(BYTE edid[128], UINT width, UINT height, UINT refresh, UIN
 
 static bool ValidSize(UINT w, UINT h, UINT hz)
 {
-    return w >= EKVDD_MIN_W && w <= EKVDD_MAX_W && h >= EKVDD_MIN_H && h <= EKVDD_MAX_H &&
-           hz >= EKVDD_MIN_HZ && hz <= EKVDD_MAX_HZ;
+    return w >= BSRVDD_MIN_W && w <= BSRVDD_MAX_W && h >= BSRVDD_MIN_H && h <= BSRVDD_MAX_H &&
+           hz >= BSRVDD_MIN_HZ && hz <= BSRVDD_MAX_HZ;
 }
 
 static bool DecodeEdid(const void* data, UINT size, UINT* w, UINT* h, UINT* hz)
@@ -204,30 +204,30 @@ extern "C" NTSTATUS DriverEntry(PDRIVER_OBJECT pDriverObject, PUNICODE_STRING pR
     WDF_DRIVER_CONFIG config;
     WDF_OBJECT_ATTRIBUTES attributes;
     WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
-    WDF_DRIVER_CONFIG_INIT(&config, EkVddDeviceAdd);
+    WDF_DRIVER_CONFIG_INIT(&config, BsrVddDeviceAdd);
     return WdfDriverCreate(pDriverObject, pRegistryPath, &attributes, &config, WDF_NO_HANDLE);
 }
 
 _Use_decl_annotations_
-NTSTATUS EkVddDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT pDeviceInit)
+NTSTATUS BsrVddDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT pDeviceInit)
 {
     UNREFERENCED_PARAMETER(driver);
 
     WDF_PNPPOWER_EVENT_CALLBACKS pnpPower;
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnpPower);
-    pnpPower.EvtDeviceD0Entry = EkVddDeviceD0Entry;
+    pnpPower.EvtDeviceD0Entry = BsrVddDeviceD0Entry;
     WdfDeviceInitSetPnpPowerEventCallbacks(pDeviceInit, &pnpPower);
 
     IDD_CX_CLIENT_CONFIG iddConfig;
     IDD_CX_CLIENT_CONFIG_INIT(&iddConfig);
-    iddConfig.EvtIddCxDeviceIoControl = EkVddDeviceIoControl;
-    iddConfig.EvtIddCxAdapterInitFinished = EkVddAdapterInitFinished;
-    iddConfig.EvtIddCxParseMonitorDescription = EkVddParseMonitorDescription;
-    iddConfig.EvtIddCxMonitorGetDefaultDescriptionModes = EkVddMonitorGetDefaultModes;
-    iddConfig.EvtIddCxMonitorQueryTargetModes = EkVddMonitorQueryModes;
-    iddConfig.EvtIddCxAdapterCommitModes = EkVddAdapterCommitModes;
-    iddConfig.EvtIddCxMonitorAssignSwapChain = EkVddMonitorAssignSwapChain;
-    iddConfig.EvtIddCxMonitorUnassignSwapChain = EkVddMonitorUnassignSwapChain;
+    iddConfig.EvtIddCxDeviceIoControl = BsrVddDeviceIoControl;
+    iddConfig.EvtIddCxAdapterInitFinished = BsrVddAdapterInitFinished;
+    iddConfig.EvtIddCxParseMonitorDescription = BsrVddParseMonitorDescription;
+    iddConfig.EvtIddCxMonitorGetDefaultDescriptionModes = BsrVddMonitorGetDefaultModes;
+    iddConfig.EvtIddCxMonitorQueryTargetModes = BsrVddMonitorQueryModes;
+    iddConfig.EvtIddCxAdapterCommitModes = BsrVddAdapterCommitModes;
+    iddConfig.EvtIddCxMonitorAssignSwapChain = BsrVddMonitorAssignSwapChain;
+    iddConfig.EvtIddCxMonitorUnassignSwapChain = BsrVddMonitorUnassignSwapChain;
 
     NTSTATUS status = IddCxDeviceInitConfig(pDeviceInit, &iddConfig);
     if (!NT_SUCCESS(status)) return status;
@@ -245,7 +245,7 @@ NTSTATUS EkVddDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT pDeviceInit)
     if (!NT_SUCCESS(status)) return status;
 
     // Uygulamanın bizi bulması için aygıt arayüzü
-    status = WdfDeviceCreateDeviceInterface(device, &GUID_DEVINTERFACE_EKRANKURTAR_VDD, nullptr);
+    status = WdfDeviceCreateDeviceInterface(device, &GUID_DEVINTERFACE_BSR_VDD, nullptr);
     if (!NT_SUCCESS(status)) return status;
 
     status = IddCxDeviceInitialize(device);
@@ -258,7 +258,7 @@ NTSTATUS EkVddDeviceAdd(WDFDRIVER driver, PWDFDEVICE_INIT pDeviceInit)
 }
 
 _Use_decl_annotations_
-NTSTATUS EkVddDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previousState)
+NTSTATUS BsrVddDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previousState)
 {
     UNREFERENCED_PARAMETER(previousState);
     auto* wrapper = WdfObjectGet_IndirectDeviceContextWrapper(device);
@@ -267,7 +267,7 @@ NTSTATUS EkVddDeviceD0Entry(WDFDEVICE device, WDF_POWER_DEVICE_STATE previousSta
 }
 
 _Use_decl_annotations_
-VOID EkVddDeviceIoControl(WDFDEVICE device, WDFREQUEST request, size_t outputLength, size_t inputLength, ULONG code)
+VOID BsrVddDeviceIoControl(WDFDEVICE device, WDFREQUEST request, size_t outputLength, size_t inputLength, ULONG code)
 {
     auto* wrapper = WdfObjectGet_IndirectDeviceContextWrapper(device);
     if (wrapper == nullptr || wrapper->pContext == nullptr)
@@ -279,7 +279,7 @@ VOID EkVddDeviceIoControl(WDFDEVICE device, WDFREQUEST request, size_t outputLen
 }
 
 _Use_decl_annotations_
-NTSTATUS EkVddAdapterInitFinished(IDDCX_ADAPTER adapterObject, const IDARG_IN_ADAPTER_INIT_FINISHED* pInArgs)
+NTSTATUS BsrVddAdapterInitFinished(IDDCX_ADAPTER adapterObject, const IDARG_IN_ADAPTER_INIT_FINISHED* pInArgs)
 {
     auto* wrapper = WdfObjectGet_IndirectDeviceContextWrapper(adapterObject);
     if (wrapper && wrapper->pContext) wrapper->pContext->OnAdapterInitFinished(pInArgs->AdapterInitStatus);
@@ -287,7 +287,7 @@ NTSTATUS EkVddAdapterInitFinished(IDDCX_ADAPTER adapterObject, const IDARG_IN_AD
 }
 
 _Use_decl_annotations_
-NTSTATUS EkVddAdapterCommitModes(IDDCX_ADAPTER adapterObject, const IDARG_IN_COMMITMODES* pInArgs)
+NTSTATUS BsrVddAdapterCommitModes(IDDCX_ADAPTER adapterObject, const IDARG_IN_COMMITMODES* pInArgs)
 {
     UNREFERENCED_PARAMETER(adapterObject);
     UNREFERENCED_PARAMETER(pInArgs);
@@ -296,7 +296,7 @@ NTSTATUS EkVddAdapterCommitModes(IDDCX_ADAPTER adapterObject, const IDARG_IN_COM
 }
 
 _Use_decl_annotations_
-NTSTATUS EkVddParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION* pInArgs, IDARG_OUT_PARSEMONITORDESCRIPTION* pOutArgs)
+NTSTATUS BsrVddParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION* pInArgs, IDARG_OUT_PARSEMONITORDESCRIPTION* pOutArgs)
 {
     UINT w, h, hz;
     if (!DecodeEdid(pInArgs->MonitorDescription.pData, pInArgs->MonitorDescription.DataSize, &w, &h, &hz))
@@ -312,7 +312,7 @@ NTSTATUS EkVddParseMonitorDescription(const IDARG_IN_PARSEMONITORDESCRIPTION* pI
 }
 
 _Use_decl_annotations_
-NTSTATUS EkVddMonitorGetDefaultModes(IDDCX_MONITOR monitorObject, const IDARG_IN_GETDEFAULTDESCRIPTIONMODES* pInArgs, IDARG_OUT_GETDEFAULTDESCRIPTIONMODES* pOutArgs)
+NTSTATUS BsrVddMonitorGetDefaultModes(IDDCX_MONITOR monitorObject, const IDARG_IN_GETDEFAULTDESCRIPTIONMODES* pInArgs, IDARG_OUT_GETDEFAULTDESCRIPTIONMODES* pOutArgs)
 {
     // Her monitöre EDID verdiğimiz için normalde çağrılmaz; yine de monitör bilgisinden cevap veriyoruz.
     auto* wrapper = WdfObjectGet_IndirectMonitorContextWrapper(monitorObject);
@@ -329,7 +329,7 @@ NTSTATUS EkVddMonitorGetDefaultModes(IDDCX_MONITOR monitorObject, const IDARG_IN
 }
 
 _Use_decl_annotations_
-NTSTATUS EkVddMonitorQueryModes(IDDCX_MONITOR monitorObject, const IDARG_IN_QUERYTARGETMODES* pInArgs, IDARG_OUT_QUERYTARGETMODES* pOutArgs)
+NTSTATUS BsrVddMonitorQueryModes(IDDCX_MONITOR monitorObject, const IDARG_IN_QUERYTARGETMODES* pInArgs, IDARG_OUT_QUERYTARGETMODES* pOutArgs)
 {
     auto* wrapper = WdfObjectGet_IndirectMonitorContextWrapper(monitorObject);
     if (wrapper == nullptr || wrapper->pContext == nullptr) return STATUS_INVALID_PARAMETER;
@@ -342,7 +342,7 @@ NTSTATUS EkVddMonitorQueryModes(IDDCX_MONITOR monitorObject, const IDARG_IN_QUER
 }
 
 _Use_decl_annotations_
-NTSTATUS EkVddMonitorAssignSwapChain(IDDCX_MONITOR monitorObject, const IDARG_IN_SETSWAPCHAIN* pInArgs)
+NTSTATUS BsrVddMonitorAssignSwapChain(IDDCX_MONITOR monitorObject, const IDARG_IN_SETSWAPCHAIN* pInArgs)
 {
     auto* wrapper = WdfObjectGet_IndirectMonitorContextWrapper(monitorObject);
     if (wrapper == nullptr || wrapper->pContext == nullptr) return STATUS_INVALID_PARAMETER;
@@ -351,7 +351,7 @@ NTSTATUS EkVddMonitorAssignSwapChain(IDDCX_MONITOR monitorObject, const IDARG_IN
 }
 
 _Use_decl_annotations_
-NTSTATUS EkVddMonitorUnassignSwapChain(IDDCX_MONITOR monitorObject)
+NTSTATUS BsrVddMonitorUnassignSwapChain(IDDCX_MONITOR monitorObject)
 {
     auto* wrapper = WdfObjectGet_IndirectMonitorContextWrapper(monitorObject);
     if (wrapper && wrapper->pContext) wrapper->pContext->UnassignSwapChain();
@@ -517,14 +517,14 @@ void IndirectDeviceContext::InitAdapter()
 
     IDDCX_ADAPTER_CAPS caps = {};
     caps.Size = sizeof(caps);
-    caps.MaxMonitorsSupported = EKVDD_MAX_MONITORS;
+    caps.MaxMonitorsSupported = BSRVDD_MAX_MONITORS;
 
     caps.EndPointDiagnostics.Size = sizeof(caps.EndPointDiagnostics);
     caps.EndPointDiagnostics.GammaSupport = IDDCX_FEATURE_IMPLEMENTATION_NONE;
     caps.EndPointDiagnostics.TransmissionType = IDDCX_TRANSMISSION_TYPE_WIRED_OTHER;
-    caps.EndPointDiagnostics.pEndPointFriendlyName = L"Ekran Kurtar Virtual Display";
-    caps.EndPointDiagnostics.pEndPointManufacturerName = L"Ekran Kurtar";
-    caps.EndPointDiagnostics.pEndPointModelName = L"EkranKurtarVDD";
+    caps.EndPointDiagnostics.pEndPointFriendlyName = L"Broken Screen Resizer Virtual Display";
+    caps.EndPointDiagnostics.pEndPointManufacturerName = L"Broken Screen Resizer";
+    caps.EndPointDiagnostics.pEndPointModelName = L"BrokenScreenResizerVDD";
 
     IDDCX_ENDPOINT_VERSION version = {};
     version.Size = sizeof(version);
@@ -571,10 +571,10 @@ NTSTATUS IndirectDeviceContext::QueueAdd(UINT width, UINT height, UINT refresh, 
     if (!m_AdapterReady) return STATUS_DEVICE_NOT_READY;
 
     // Aynı boyutta bir monitör zaten varsa onu döndür
-    for (UINT i = 0; i < EKVDD_MAX_MONITORS; i++)
+    for (UINT i = 0; i < BSRVDD_MAX_MONITORS; i++)
     {
         auto& s = m_Slots[i];
-        if (s.Used && (s.State == EKVDD_STATE_ACTIVE || s.State == EKVDD_STATE_PENDING) &&
+        if (s.Used && (s.State == BSRVDD_STATE_ACTIVE || s.State == BSRVDD_STATE_PENDING) &&
             s.Width == width && s.Height == height && s.Refresh == refresh)
         {
             *id = i + 1;
@@ -582,17 +582,17 @@ NTSTATUS IndirectDeviceContext::QueueAdd(UINT width, UINT height, UINT refresh, 
         }
     }
 
-    for (UINT i = 0; i < EKVDD_MAX_MONITORS; i++)
+    for (UINT i = 0; i < BSRVDD_MAX_MONITORS; i++)
     {
         auto& s = m_Slots[i];
         // Başarısız kalmış yuvalar yeniden kullanılabilir
-        if (s.Used && !(s.State == EKVDD_STATE_FAILED && s.Monitor == nullptr)) continue;
+        if (s.Used && !(s.State == BSRVDD_STATE_FAILED && s.Monitor == nullptr)) continue;
         s = MonitorSlot();
         s.Used = true;
         s.Width = width;
         s.Height = height;
         s.Refresh = refresh;
-        s.State = EKVDD_STATE_PENDING;
+        s.State = BSRVDD_STATE_PENDING;
         m_Queue.push_back({ true, i });
         m_Cv.notify_all();
         *id = i + 1;
@@ -604,12 +604,12 @@ NTSTATUS IndirectDeviceContext::QueueAdd(UINT width, UINT height, UINT refresh, 
 void IndirectDeviceContext::QueueRemove(UINT id)
 {
     lock_guard<mutex> lock(m_Lock);
-    for (UINT i = 0; i < EKVDD_MAX_MONITORS; i++)
+    for (UINT i = 0; i < BSRVDD_MAX_MONITORS; i++)
     {
         if (id != 0 && id != i + 1) continue;
         auto& s = m_Slots[i];
-        if (!s.Used || s.State == EKVDD_STATE_REMOVING) continue;
-        s.State = EKVDD_STATE_REMOVING;
+        if (!s.Used || s.State == BSRVDD_STATE_REMOVING) continue;
+        s.State = BSRVDD_STATE_REMOVING;
         m_Queue.push_back({ false, i });
     }
     m_Cv.notify_all();
@@ -640,7 +640,7 @@ void IndirectDeviceContext::DoAdd(UINT slot)
     {
         lock_guard<mutex> lock(m_Lock);
         auto& s = m_Slots[slot];
-        if (!s.Used || s.State != EKVDD_STATE_PENDING) return; // bu arada kaldırılması istenmiş
+        if (!s.Used || s.State != BSRVDD_STATE_PENDING) return; // bu arada kaldırılması istenmiş
         w = s.Width; h = s.Height; hz = s.Refresh;
     }
 
@@ -663,8 +663,8 @@ void IndirectDeviceContext::DoAdd(UINT slot)
     info.MonitorDescription.Type = IDDCX_MONITOR_DESCRIPTION_TYPE_EDID;
     info.MonitorDescription.DataSize = sizeof(edid);
     info.MonitorDescription.pData = edid;
-    // Her yuva için sabit bir kimlik: {48E3B660-74DD-497A-B990-9C34BF252FD0 + yuva}
-    info.MonitorContainerId = { 0x48e3b660, 0x74dd, 0x497a, { 0xb9, 0x90, 0x9c, 0x34, 0xbf, 0x25, 0x2f, (BYTE)(0xd0 + slot) } };
+    // Her yuva için sabit bir kimlik: {DB429C52-D650-4643-8385-50F8FB328120 + yuva}
+    info.MonitorContainerId = { 0xdb429c52, 0xd650, 0x4643, { 0x83, 0x85, 0x50, 0xf8, 0xfb, 0x32, 0x81, (BYTE)(0x20 + slot) } };
 
     IDARG_IN_MONITORCREATE create = {};
     create.ObjectAttributes = &attr;
@@ -701,7 +701,7 @@ void IndirectDeviceContext::DoAdd(UINT slot)
     auto& s = m_Slots[slot];
     s.Status = status;
     s.Monitor = monitor;
-    if (s.State == EKVDD_STATE_PENDING) s.State = NT_SUCCESS(status) ? EKVDD_STATE_ACTIVE : EKVDD_STATE_FAILED;
+    if (s.State == BSRVDD_STATE_PENDING) s.State = NT_SUCCESS(status) ? BSRVDD_STATE_ACTIVE : BSRVDD_STATE_FAILED;
 }
 
 void IndirectDeviceContext::DoRemove(UINT slot)
@@ -729,52 +729,52 @@ void IndirectDeviceContext::HandleIoctl(WDFREQUEST request, size_t outputLength,
 
     switch (code)
     {
-    case IOCTL_EKVDD_INFO:
+    case IOCTL_BSRVDD_INFO:
     {
-        EKVDD_INFO* out = nullptr;
-        status = WdfRequestRetrieveOutputBuffer(request, sizeof(EKVDD_INFO), (PVOID*)&out, nullptr);
+        BSRVDD_INFO* out = nullptr;
+        status = WdfRequestRetrieveOutputBuffer(request, sizeof(BSRVDD_INFO), (PVOID*)&out, nullptr);
         if (!NT_SUCCESS(status)) break;
         lock_guard<mutex> lock(m_Lock);
-        out->Version = EKVDD_PROTOCOL_VERSION;
-        out->MaxMonitors = EKVDD_MAX_MONITORS;
+        out->Version = BSRVDD_PROTOCOL_VERSION;
+        out->MaxMonitors = BSRVDD_MAX_MONITORS;
         out->AdapterReady = m_AdapterReady ? 1 : 0;
         out->MonitorCount = 0;
         for (auto& s : m_Slots) if (s.Used) out->MonitorCount++;
-        info = sizeof(EKVDD_INFO);
+        info = sizeof(BSRVDD_INFO);
         break;
     }
-    case IOCTL_EKVDD_ADD:
+    case IOCTL_BSRVDD_ADD:
     {
-        EKVDD_ADD_IN* in = nullptr;
-        EKVDD_ADD_OUT* out = nullptr;
-        status = WdfRequestRetrieveInputBuffer(request, sizeof(EKVDD_ADD_IN), (PVOID*)&in, nullptr);
+        BSRVDD_ADD_IN* in = nullptr;
+        BSRVDD_ADD_OUT* out = nullptr;
+        status = WdfRequestRetrieveInputBuffer(request, sizeof(BSRVDD_ADD_IN), (PVOID*)&in, nullptr);
         if (!NT_SUCCESS(status)) break;
-        EKVDD_ADD_IN args = *in; // METHOD_BUFFERED: giriş ve çıkış aynı tamponu paylaşır
-        status = WdfRequestRetrieveOutputBuffer(request, sizeof(EKVDD_ADD_OUT), (PVOID*)&out, nullptr);
+        BSRVDD_ADD_IN args = *in; // METHOD_BUFFERED: giriş ve çıkış aynı tamponu paylaşır
+        status = WdfRequestRetrieveOutputBuffer(request, sizeof(BSRVDD_ADD_OUT), (PVOID*)&out, nullptr);
         if (!NT_SUCCESS(status)) break;
         UINT id = 0;
         status = QueueAdd(args.Width, args.Height, args.RefreshRate, &id);
         if (NT_SUCCESS(status))
         {
             out->Id = id;
-            info = sizeof(EKVDD_ADD_OUT);
+            info = sizeof(BSRVDD_ADD_OUT);
         }
         break;
     }
-    case IOCTL_EKVDD_REMOVE:
+    case IOCTL_BSRVDD_REMOVE:
     {
-        EKVDD_REMOVE_IN* in = nullptr;
-        status = WdfRequestRetrieveInputBuffer(request, sizeof(EKVDD_REMOVE_IN), (PVOID*)&in, nullptr);
+        BSRVDD_REMOVE_IN* in = nullptr;
+        status = WdfRequestRetrieveInputBuffer(request, sizeof(BSRVDD_REMOVE_IN), (PVOID*)&in, nullptr);
         if (!NT_SUCCESS(status)) break;
         QueueRemove(in->Id);
         status = STATUS_SUCCESS;
         break;
     }
-    case IOCTL_EKVDD_LIST:
+    case IOCTL_BSRVDD_LIST:
     {
-        EKVDD_MONITOR_STATE* out = nullptr;
+        BSRVDD_MONITOR_STATE* out = nullptr;
         size_t len = 0;
-        if (outputLength < sizeof(EKVDD_MONITOR_STATE))
+        if (outputLength < sizeof(BSRVDD_MONITOR_STATE))
         {
             // Tampon yok ya da küçük: hiç monitör yoksa boş liste geçerli bir cevap
             status = STATUS_SUCCESS;
@@ -782,11 +782,11 @@ void IndirectDeviceContext::HandleIoctl(WDFREQUEST request, size_t outputLength,
             for (auto& s : m_Slots) if (s.Used) { status = STATUS_BUFFER_TOO_SMALL; break; }
             break;
         }
-        status = WdfRequestRetrieveOutputBuffer(request, sizeof(EKVDD_MONITOR_STATE), (PVOID*)&out, &len);
+        status = WdfRequestRetrieveOutputBuffer(request, sizeof(BSRVDD_MONITOR_STATE), (PVOID*)&out, &len);
         if (!NT_SUCCESS(status)) break;
-        size_t max = len / sizeof(EKVDD_MONITOR_STATE), n = 0;
+        size_t max = len / sizeof(BSRVDD_MONITOR_STATE), n = 0;
         lock_guard<mutex> lock(m_Lock);
-        for (UINT i = 0; i < EKVDD_MAX_MONITORS && n < max; i++)
+        for (UINT i = 0; i < BSRVDD_MAX_MONITORS && n < max; i++)
         {
             auto& s = m_Slots[i];
             if (!s.Used) continue;
@@ -798,7 +798,7 @@ void IndirectDeviceContext::HandleIoctl(WDFREQUEST request, size_t outputLength,
             out[n].Status = s.Status;
             n++;
         }
-        info = n * sizeof(EKVDD_MONITOR_STATE);
+        info = n * sizeof(BSRVDD_MONITOR_STATE);
         break;
     }
     }

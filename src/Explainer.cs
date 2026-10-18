@@ -4,7 +4,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
-namespace EkranKurtar
+namespace BrokenScreenResizer
 {
     // "Nasıl çalışır?" paneli: her özelliği küçük animasyonlarla anlatır.
     class Explainer : Ctl

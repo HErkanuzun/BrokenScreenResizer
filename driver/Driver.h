@@ -1,4 +1,4 @@
-// Ekran Kurtar sanal ekran sürücüsü (IddCx / UMDF 2).
+// Broken Screen Resizer sanal ekran sürücüsü (IddCx / UMDF 2).
 // Yapı, Microsoft'un IddSampleDriver örneğine dayanır (MIT lisansı).
 #pragma once
 
@@ -22,7 +22,7 @@
 
 #include "Public.h"
 
-namespace EkVdd
+namespace BsrVdd
 {
     // Windows'un bu monitör için seçtiği ekran kartında açılan D3D cihazı
     struct Direct3DDevice
@@ -38,7 +38,7 @@ namespace EkVdd
     };
 
     // Windows'un sanal monitöre çizdiği kareleri teslim alan iş parçacığı.
-    // Kareleri bir yere göndermiyoruz; Ekran Kurtar görüntüyü Büyüteç API'siyle masaüstünden okur.
+    // Kareleri bir yere göndermiyoruz; Broken Screen Resizer görüntüyü Büyüteç API'siyle masaüstünden okur.
     // Yine de karelerin alınıp geri verilmesi gerekir, yoksa Windows sanal monitörü günceller durmaz.
     class SwapChainProcessor
     {
@@ -78,7 +78,7 @@ namespace EkVdd
     {
         bool Used = false;
         UINT Width = 0, Height = 0, Refresh = 0;
-        UINT State = EKVDD_STATE_PENDING;
+        UINT State = BSRVDD_STATE_PENDING;
         NTSTATUS Status = 0;
         IDDCX_MONITOR Monitor = nullptr;
     };
@@ -107,7 +107,7 @@ namespace EkVdd
         bool m_AdapterReady = false;
 
         std::mutex m_Lock;
-        MonitorSlot m_Slots[EKVDD_MAX_MONITORS];
+        MonitorSlot m_Slots[BSRVDD_MAX_MONITORS];
         std::deque<Command> m_Queue;
         std::condition_variable m_Cv;
         bool m_Stop = false;
@@ -117,7 +117,7 @@ namespace EkVdd
 
 struct IndirectDeviceContextWrapper
 {
-    EkVdd::IndirectDeviceContext* pContext;
+    BsrVdd::IndirectDeviceContext* pContext;
 
     void Cleanup()
     {
@@ -128,7 +128,7 @@ struct IndirectDeviceContextWrapper
 
 struct IndirectMonitorContextWrapper
 {
-    EkVdd::IndirectMonitorContext* pContext;
+    BsrVdd::IndirectMonitorContext* pContext;
 
     void Cleanup()
     {

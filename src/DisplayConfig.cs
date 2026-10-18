@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 
-namespace EkranKurtar
+namespace BrokenScreenResizer
 {
     class MonitorInfo
     {
@@ -37,7 +37,7 @@ namespace EkranKurtar
     class ApplyResult
     {
         public bool Ok;
-        public int ActualCut;
+        public Cuts ActualCuts;
         public string Log = "";
         public Snapshot Original;
         public Snapshot Applied;
@@ -151,10 +151,10 @@ namespace EkranKurtar
             return s;
         }
 
-        // cut = 0 => tam ekran (sıfırlama)
-        static Snapshot Build(int pi, Edge edge, int cut, bool centered, out int actualCut, out string err)
+        // Kesim yoksa => tam ekran (sıfırlama)
+        static Snapshot Build(int pi, Cuts cut, bool centered, out Cuts actualCut, out string err)
         {
-            actualCut = 0;
+            actualCut = new Cuts();
             err = null;
             var s = Current();
             var p = s.Paths[pi];
@@ -171,14 +171,21 @@ namespace EkranKurtar
             int nw = W, nh = H;
             int L1 = 0, T1 = 0, R1 = W, B1 = H;
 
-            if (cut > 0)
+            if (cut.Any)
             {
-                switch (edge)
+                // Masaüstü sinyal içinde herhangi bir dikdörtgen olabilir: sol/üst kesim kadar içeriden başlar.
+                // Genişlik 8'in, yükseklik 2'nin katına yuvarlanır; artan birkaç piksel kesilen kenara eklenir.
+                if (cut.H > 0)
                 {
-                    case Edge.Left: nw = (W - cut) & ~7; L1 = W - nw; break;
-                    case Edge.Right: nw = (W - cut) & ~7; R1 = nw; break;
-                    case Edge.Top: nh = (H - cut) & ~1; T1 = H - nh; break;
-                    case Edge.Bottom: nh = (H - cut) & ~1; B1 = nh; break;
+                    nw = Math.Max(64, (W - cut.H) & ~7);
+                    L1 = cut.R == 0 ? W - nw : Math.Min(cut.L, W - nw);
+                    R1 = L1 + nw;
+                }
+                if (cut.V > 0)
+                {
+                    nh = Math.Max(64, (H - cut.V) & ~1);
+                    T1 = cut.B == 0 ? H - nh : Math.Min(cut.T, H - nh);
+                    B1 = T1 + nh;
                 }
                 if (centered)
                 {
@@ -187,7 +194,8 @@ namespace EkranKurtar
                     T1 = (H - nh) / 2; B1 = T1 + nh;
                 }
             }
-            actualCut = (edge == Edge.Left || edge == Edge.Right) ? W - nw : H - nh;
+            if (!centered) actualCut = new Cuts(L1, T1, W - R1, H - B1);
+            else actualCut = cut.H + cut.V > 0 ? Spread(cut, W - nw, H - nh) : cut;
 
             int x0 = m[si].posX, y0 = m[si].posY;
             int oldW = (int)m[si].srcWidth, oldH = (int)m[si].srcHeight;
@@ -223,7 +231,15 @@ namespace EkranKurtar
         }
 
         // Ayarı uygular (kaydetmeden). Sonra Keep() ya da Restore() çağrılmalı.
-        public static ApplyResult TryApply(string devicePath, Edge edge, int cut, bool centered)
+        // Ortalanmış (NVIDIA) modda gerçek kesimi istenen oranda kenarlara dağıtır
+        static Cuts Spread(Cuts want, int dw, int dh)
+        {
+            int l = want.H > 0 ? dw * want.L / want.H : 0;
+            int t = want.V > 0 ? dh * want.T / want.V : 0;
+            return new Cuts(l, t, want.H > 0 ? dw - l : 0, want.V > 0 ? dh - t : 0);
+        }
+
+        public static ApplyResult TryApply(string devicePath, Cuts cut, bool centered)
         {
             var res = new ApplyResult();
             var log = new StringBuilder();
@@ -234,7 +250,7 @@ namespace EkranKurtar
 
             res.Original = Current();
             string err;
-            var s = Build(pi, edge, cut, centered, out res.ActualCut, out err);
+            var s = Build(pi, cut, centered, out res.ActualCuts, out err);
             if (s == null) { res.Log = err; return res; }
             {
                 var dm = s.Modes[DeskIdx(s.Paths[pi])];
@@ -314,8 +330,8 @@ namespace EkranKurtar
             if (r != 0) return r;
             int pi = FindPath(devicePath);
             if (pi < 0) return 87;
-            int c; string err;
-            var s = Build(pi, Edge.Left, 0, false, out c, out err);
+            Cuts c; string err;
+            var s = Build(pi, new Cuts(), false, out c, out err);
             if (s == null) return 50;
             return Set(s, Ccd.SDC_APPLY | Ccd.SDC_SAVE | Ccd.SDC_ALLOW_CHANGES);
         }
@@ -338,26 +354,15 @@ namespace EkranKurtar
             return sb.Length == 0 ? L.T("Kırpılmış monitör yok.", "No cropped monitors.") : sb.ToString();
         }
 
-        public static bool IsApplied(string devicePath, Edge edge, int cut, bool centered)
+        public static bool IsApplied(string devicePath, Cuts cut, bool centered)
         {
             foreach (var m in GetMonitors())
             {
                 if (m.DevicePath != devicePath) continue;
                 if (!m.HasRegion) return false;
-                if (centered)
-                {
-                    bool h = edge == Edge.Left || edge == Edge.Right;
-                    int want = (h ? m.PathW : m.PathH) - cut;
-                    int got = h ? m.RegR - m.RegL : m.RegB - m.RegT;
-                    return Math.Abs(got - want) <= 8;
-                }
-                switch (edge)
-                {
-                    case Edge.Left: return Math.Abs(m.RegL - cut) <= 8;
-                    case Edge.Right: return Math.Abs(m.PathW - m.RegR - cut) <= 8;
-                    case Edge.Top: return Math.Abs(m.RegT - cut) <= 2;
-                    case Edge.Bottom: return Math.Abs(m.PathH - m.RegB - cut) <= 2;
-                }
+                bool size = Math.Abs((m.RegR - m.RegL) - (m.PathW - cut.H)) <= 8 && Math.Abs((m.RegB - m.RegT) - (m.PathH - cut.V)) <= 2;
+                if (centered) return size;
+                return size && Math.Abs(m.RegL - cut.L) <= 8 && Math.Abs(m.RegT - cut.T) <= 2;
             }
             return false;
         }

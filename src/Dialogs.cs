@@ -2,7 +2,7 @@ using System;
 using System.Drawing;
 using System.Windows.Forms;
 
-namespace EkranKurtar
+namespace BrokenScreenResizer
 {
     // Ayar yaparken kırık alanı kırmızı gösteren, tıklamaları geçiren yarı saydam katman
     class PreviewOverlay : Form
@@ -29,10 +29,14 @@ namespace EkranKurtar
 
         protected override bool ShowWithoutActivation { get { return true; } }
 
-        public void ShowAt(Rectangle r)
+        // Ekranın sağlam dikdörtgen dışında kalan kısmını (bir ya da birden çok kenar) kırmızıyla kaplar
+        public void ShowFrame(Rectangle screen, Rectangle good)
         {
-            if (r.Width <= 0 || r.Height <= 0) { Hide(); return; }
-            Bounds = r;
+            if (screen.Width <= 0 || screen.Height <= 0 || good.Contains(screen)) { Hide(); return; }
+            Bounds = screen;
+            var rg = new Region(new Rectangle(0, 0, screen.Width, screen.Height));
+            rg.Exclude(new Rectangle(good.X - screen.X, good.Y - screen.Y, good.Width, good.Height));
+            Region = rg;   // eski bölgeyi WinForms kendisi bırakır
             if (!Visible) Show();
         }
     }
@@ -42,7 +46,7 @@ namespace EkranKurtar
     {
         public DarkDialog()
         {
-            Text = "Ekran Kurtar";
+            Text = "Broken Screen Resizer";
             Icon = Theme.AppIcon(32);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -165,7 +169,7 @@ namespace EkranKurtar
             dot.SetBounds(x0, Theme.P(26), Theme.P(4), Theme.P(22));
             Controls.Add(dot);
 
-            var title = MakeLabel(warning ? L.T("Dikkat", "Attention") : "Ekran Kurtar", 12f, true, Theme.Text, w);
+            var title = MakeLabel(warning ? L.T("Dikkat", "Attention") : "Broken Screen Resizer", 12f, true, Theme.Text, w);
             title.Location = new Point(x0 + Theme.P(14), Theme.P(24));
 
             var body = MakeLabel(text.TrimEnd(), 9.5f, false, Theme.Sub, w);

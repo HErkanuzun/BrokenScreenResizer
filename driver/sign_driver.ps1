@@ -1,8 +1,8 @@
-﻿# Ekran Kurtar sanal ekran sürücüsü - katalog oluşturma ve imzalama.
+﻿# Broken Screen Resizer sanal ekran sürücüsü - katalog oluşturma ve imzalama.
 # build_driver.bat tarafından çağrılır.
 #
 # Windows, sürücü paketlerinin güvenilir bir sertifikayla imzalanmasını ister. Burada geliştiricinin
-# bilgisayarında kendinden imzalı bir sertifika oluşturulur (bir kez). Ekran Kurtar sürücüyü kurarken
+# bilgisayarında kendinden imzalı bir sertifika oluşturulur (bir kez). Broken Screen Resizer sürücüyü kurarken
 # bu sertifikanın açık kısmını (.cer) "Güvenilen Kök" ve "Güvenilen Yayımcılar" depolarına ekler.
 # Özel anahtar hiçbir zaman pakete girmez.
 param(
@@ -12,11 +12,11 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-$Subject = 'CN=Ekran Kurtar Driver Signing'
-$dll = Join-Path $Package 'EkranKurtarVDD.dll'
-$inf = Join-Path $Package 'EkranKurtarVDD.inf'
-$cat = Join-Path $Package 'EkranKurtarVDD.cat'
-$cer = Join-Path $Package 'EkranKurtarVDD.cer'
+$Subject = 'CN=Broken Screen Resizer Driver Signing'
+$dll = Join-Path $Package 'BrokenScreenResizerVDD.dll'
+$inf = Join-Path $Package 'BrokenScreenResizerVDD.inf'
+$cat = Join-Path $Package 'BrokenScreenResizerVDD.cat'
+$cer = Join-Path $Package 'BrokenScreenResizerVDD.cer'
 
 function Find-Tool([string]$name) {
     $c = Get-Command $name -ErrorAction SilentlyContinue
@@ -65,18 +65,18 @@ if (-not $made) {
     # Yedek yol: Windows SDK'daki makecat
     Write-Host 'Inf2Cat kullanılamadı, makecat ile katalog oluşturuluyor...'
     $makecat = Find-Tool 'makecat.exe'
-    $cdf = Join-Path $Package 'EkranKurtarVDD.cdf'
+    $cdf = Join-Path $Package 'BrokenScreenResizerVDD.cdf'
     @"
 [CatalogHeader]
-Name=EkranKurtarVDD.cat
+Name=BrokenScreenResizerVDD.cat
 ResultDir=$Package
 PublicVersion=0x0000001
 EncodingType=0x00010001
 CATATTR1=0x10010001:OSAttr:2:10.0
 
 [CatalogFiles]
-<hash>EkranKurtarVDD.inf=$inf
-<hash>EkranKurtarVDD.dll=$dll
+<hash>BrokenScreenResizerVDD.inf=$inf
+<hash>BrokenScreenResizerVDD.dll=$dll
 "@ | Set-Content -Encoding ASCII $cdf
     & $makecat -v $cdf | Out-Host
     Remove-Item $cdf -ErrorAction SilentlyContinue

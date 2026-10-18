@@ -9,11 +9,11 @@ using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace EkranKurtar
+namespace BrokenScreenResizer
 {
     // ===================================================================================
     // "Sanal monitör modu":
-    //  1) Ekran Kurtar'ın kendi sanal ekran sürücüsüyle (driver\, bkz. VirtualDriver.cs) sağlam alan boyutunda sanal bir monitör açılır.
+    //  1) Broken Screen Resizer'ın kendi sanal ekran sürücüsüyle (driver\, bkz. VirtualDriver.cs) sağlam alan boyutunda sanal bir monitör açılır.
     //  2) Sanal monitör, fiziksel monitörün yerine konur; fiziksel monitör düzende kenara alınır.
     //  3) Sanal monitörün görüntüsü Windows Büyüteç API'siyle fiziksel monitörün sağlam kısmına 1:1 kopyalanır.
     //  4) Fare fiziksel monitörün (artık sadece ayna olan) alanına giremez.
@@ -288,7 +288,7 @@ namespace EkranKurtar
         {
             base.OnHandleCreated(e);
             VNative.SetLayeredWindowAttributes(Handle, 0, 255, 2);
-            mag = VNative.CreateWindowEx(0, "Magnifier", "EkranKurtarMirror",
+            mag = VNative.CreateWindowEx(0, "Magnifier", "BrokenScreenResizerMirror",
                 VNative.WS_CHILD | VNative.WS_VISIBLE | VNative.MS_SHOWMAGNIFIEDCURSOR,
                 magRect.X, magRect.Y, magRect.Width, magRect.Height, Handle, IntPtr.Zero, VNative.GetModuleHandle(null), IntPtr.Zero);
             var t = new VNative.MAGTRANSFORM();
@@ -325,8 +325,7 @@ namespace EkranKurtar
         }
 
         readonly string physGdi, virtGdi;
-        readonly Edge edge;
-        readonly int cut;
+        readonly Cuts cuts;
         volatile Rects rects;
         volatile bool running, layoutChanged;
         volatile IntPtr mirrorHwnd = IntPtr.Zero;
@@ -340,9 +339,9 @@ namespace EkranKurtar
 
         System.Windows.Forms.Timer winTimer;
 
-        public VirtualMirror(string physGdi, string virtGdi, Edge edge, int cut)
+        public VirtualMirror(string physGdi, string virtGdi, Cuts cuts)
         {
-            this.physGdi = physGdi; this.virtGdi = virtGdi; this.edge = edge; this.cut = cut;
+            this.physGdi = physGdi; this.virtGdi = virtGdi; this.cuts = cuts;
         }
 
         // Fiziksel monitörün (artık sadece ayna) ve sanal monitörün masaüstü koordinatları
@@ -410,7 +409,7 @@ namespace EkranKurtar
                     return;
                 }
                 var r = rects;
-                var good = Geo.Good(new Rectangle(0, 0, r.Phys.Width, r.Phys.Height), edge, cut);
+                var good = cuts.Good(new Rectangle(0, 0, r.Phys.Width, r.Phys.Height));
                 var area = new Rectangle(good.X, good.Y, Math.Min(good.Width, r.Virt.Width), Math.Min(good.Height, r.Virt.Height));
                 form = new MirrorForm(r.Phys, area, r.Virt);
                 form.Show();
@@ -526,7 +525,7 @@ namespace EkranKurtar
 
         // ---------------------------------------------------------------- Pencereleri kurtar
         // Fiziksel monitöre (aynanın arkasına, ulaşılamayan yere) düşen tüm pencereleri sanal monitöre taşır.
-        // Ekran Kurtar'ın kendi pencereleri de dahil.
+        // Broken Screen Resizer'ın kendi pencereleri de dahil.
         void PullWindows()
         {
             var r = rects;
@@ -556,7 +555,7 @@ namespace EkranKurtar
             int cx = (wr.Left + wr.Right) / 2, cy = (wr.Top + wr.Bottom) / 2;
             if (!r.Phys.Contains(cx, cy)) return;
 
-            // Asenkron çağrılar: yanıt vermeyen başka bir program Ekran Kurtar'ı kilitleyemesin
+            // Asenkron çağrılar: yanıt vermeyen başka bir program Broken Screen Resizer'ı kilitleyemesin
             const uint flags = Win.SWP_NOZORDER | Win.SWP_NOACTIVATE | VNative.SWP_ASYNCWINDOWPOS;
             if (Win.IsZoomed(h))
             {

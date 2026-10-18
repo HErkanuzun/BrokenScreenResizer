@@ -1,56 +1,44 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
 
-namespace EkranKurtar
+namespace BrokenScreenResizer
 {
-    static class Geo
-    {
-        // Kırık alan
-        public static Rectangle Cut(Rectangle s, Edge e, int c)
-        {
-            switch (e)
-            {
-                case Edge.Left: return new Rectangle(s.Left, s.Top, c, s.Height);
-                case Edge.Right: return new Rectangle(s.Right - c, s.Top, c, s.Height);
-                case Edge.Top: return new Rectangle(s.Left, s.Top, s.Width, c);
-                default: return new Rectangle(s.Left, s.Bottom - c, s.Width, c);
-            }
-        }
-
-        // Sağlam alan
-        public static Rectangle Good(Rectangle s, Edge e, int c)
-        {
-            switch (e)
-            {
-                case Edge.Left: return new Rectangle(s.Left + c, s.Top, s.Width - c, s.Height);
-                case Edge.Right: return new Rectangle(s.Left, s.Top, s.Width - c, s.Height);
-                case Edge.Top: return new Rectangle(s.Left, s.Top + c, s.Width, s.Height - c);
-                default: return new Rectangle(s.Left, s.Top, s.Width, s.Height - c);
-            }
-        }
-    }
-
-    // Kırık alanı görev çubuğu gibi rezerve eden siyah pencere
+    // Bir kenardaki bozuk şeridi görev çubuğu gibi rezerve eden siyah pencere.
+    // Birden fazla kenar bozuksa her kenar için bir tane açılır.
     class AppBarForm : Form
     {
         uint callbackMsg;
         bool registered;
         Rectangle screenBounds;
-        Edge edge;
-        int cut;
+        readonly Edge edge;
+        readonly int thick;
 
-        public AppBarForm(Rectangle screenBounds, Edge edge, int cut)
+        public AppBarForm(Rectangle screenBounds, Edge edge, int thick)
         {
-            this.screenBounds = screenBounds; this.edge = edge; this.cut = cut;
+            this.screenBounds = screenBounds; this.edge = edge; this.thick = thick;
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
             BackColor = Color.Black;
             StartPosition = FormStartPosition.Manual;
             TopMost = true;
-            Bounds = Geo.Cut(screenBounds, edge, cut);
+            Bounds = FullStrip();
+        }
+
+        // Kenar boyunca tam uzunlukta şerit (Windows diğer çubuklara göre kısaltabilir)
+        Rectangle FullStrip()
+        {
+            var s = screenBounds;
+            switch (edge)
+            {
+                case Edge.Left: return new Rectangle(s.Left, s.Top, thick, s.Height);
+                case Edge.Right: return new Rectangle(s.Right - thick, s.Top, thick, s.Height);
+                case Edge.Top: return new Rectangle(s.Left, s.Top, s.Width, thick);
+                default: return new Rectangle(s.Left, s.Bottom - thick, s.Width, thick);
+            }
         }
 
         protected override CreateParams CreateParams
@@ -77,7 +65,7 @@ namespace EkranKurtar
         {
             base.OnHandleCreated(e);
             var d = Data();
-            callbackMsg = Win.RegisterWindowMessage("EkranKurtar_AppBar");
+            callbackMsg = Win.RegisterWindowMessage("BrokenScreenResizer_AppBar");
             d.uCallbackMessage = callbackMsg;
             Win.SHAppBarMessage(Win.ABM_NEW, ref d);
             registered = true;
@@ -95,18 +83,19 @@ namespace EkranKurtar
             if (!registered) return;
             var d = Data();
             d.uEdge = (uint)edge;
-            var r = Geo.Cut(screenBounds, edge, cut);
+            var r = FullStrip();
             d.rc.Left = r.Left; d.rc.Top = r.Top; d.rc.Right = r.Right; d.rc.Bottom = r.Bottom;
             Win.SHAppBarMessage(Win.ABM_QUERYPOS, ref d);
             switch (edge)
             {
-                case Edge.Left: d.rc.Right = d.rc.Left + cut; break;
-                case Edge.Right: d.rc.Left = d.rc.Right - cut; break;
-                case Edge.Top: d.rc.Bottom = d.rc.Top + cut; break;
-                case Edge.Bottom: d.rc.Top = d.rc.Bottom - cut; break;
+                case Edge.Left: d.rc.Right = d.rc.Left + thick; break;
+                case Edge.Right: d.rc.Left = d.rc.Right - thick; break;
+                case Edge.Top: d.rc.Bottom = d.rc.Top + thick; break;
+                case Edge.Bottom: d.rc.Top = d.rc.Bottom - thick; break;
             }
             Win.SHAppBarMessage(Win.ABM_SETPOS, ref d);
-            Bounds = new Rectangle(d.rc.Left, d.rc.Top, d.rc.Right - d.rc.Left, d.rc.Bottom - d.rc.Top);
+            // Siyah alan her zaman ekranın o kenarındaki şeridi tam kaplasın
+            Bounds = FullStrip();
         }
 
         public void Unregister()
@@ -130,21 +119,22 @@ namespace EkranKurtar
         }
     }
 
-    // "Yazılım modu": kırık alanı kapatır, fareyi ve pencereleri sağlam alanda tutar.
+    // "Yazılım modu": bozuk kenarları kapatır, fareyi ve pencereleri sağlam alanda (herhangi bir dikdörtgen) tutar.
     class Shield
     {
         readonly string gdiName;
-        readonly Edge edge;
-        readonly int cut;
+        readonly Cuts signalCuts;   // monitör çözünürlüğüne göre
+        readonly int signalW, signalH;
+        Cuts cuts;                  // masaüstü koordinatlarına göre
         public bool LockCursor, FixWindows;
         Rectangle screenBounds;
-        AppBarForm bar;
+        readonly List<AppBarForm> bars = new List<AppBarForm>();
         Timer timer;
         readonly uint myPid;
 
-        public Shield(string gdiName, Edge edge, int cut, bool lockCursor, bool fixWindows)
+        public Shield(string gdiName, Cuts cuts, int signalW, int signalH, bool lockCursor, bool fixWindows)
         {
-            this.gdiName = gdiName; this.edge = edge; this.cut = cut;
+            this.gdiName = gdiName; signalCuts = cuts; this.signalW = signalW; this.signalH = signalH;
             LockCursor = lockCursor; FixWindows = fixWindows;
             myPid = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
         }
@@ -155,14 +145,25 @@ namespace EkranKurtar
             return null;
         }
 
+        void ReadScreen(Screen s)
+        {
+            screenBounds = s.Bounds;
+            screens = Screen.AllScreens;
+            cuts = signalW > 0 && signalH > 0 ? signalCuts.Scale(signalW, signalH, s.Bounds.Width, s.Bounds.Height) : signalCuts;
+        }
+
         public bool Start()
         {
             var s = FindScreen(gdiName);
             if (s == null) return false;
-            screenBounds = s.Bounds;
-            screens = Screen.AllScreens;
-            bar = new AppBarForm(screenBounds, edge, cut);
-            bar.Show();
+            ReadScreen(s);
+            foreach (var e in Cuts.All)
+            {
+                if (cuts[e] <= 0) continue;
+                var bar = new AppBarForm(screenBounds, e, cuts[e]);
+                bar.Show();
+                bars.Add(bar);
+            }
             try { InstallHook(); } catch { hook = IntPtr.Zero; }
             timer = new Timer();
             timer.Interval = 30;
@@ -174,14 +175,15 @@ namespace EkranKurtar
 
         void OnDisplayChanged(object sender, EventArgs e)
         {
-            if (bar == null || !bar.IsHandleCreated) return;
-            bar.BeginInvoke((MethodInvoker)delegate
+            if (bars.Count == 0 || !bars[0].IsHandleCreated) return;
+            bars[0].BeginInvoke((MethodInvoker)delegate
             {
                 var s = FindScreen(gdiName);
                 if (s == null) return;
+                // Şerit kalınlıkları değişmez; sadece konumlar güncellenir
                 screenBounds = s.Bounds;
                 screens = Screen.AllScreens;
-                bar.Update(screenBounds);
+                foreach (var b in bars) b.Update(screenBounds);
             });
         }
 
@@ -190,7 +192,14 @@ namespace EkranKurtar
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;
             RemoveHook();
             if (timer != null) { timer.Stop(); timer.Dispose(); timer = null; }
-            if (bar != null) { bar.Unregister(); bar.Close(); bar.Dispose(); bar = null; }
+            foreach (var b in bars) { b.Unregister(); b.Close(); b.Dispose(); }
+            bars.Clear();
+        }
+
+        bool IsBar(IntPtr h)
+        {
+            foreach (var b in bars) if (b.IsHandleCreated && b.Handle == h) return true;
+            return false;
         }
 
         void Tick()
@@ -201,30 +210,34 @@ namespace EkranKurtar
 
         int lastX = int.MinValue, lastY = int.MinValue;
 
-        // Fare kırık alana girmek isterse nereye gitmeli?
-        //  - sağlam alandan geliyorsa ve ötede başka monitör varsa, kırık alanın üstünden atlayıp o monitöre geçer
+        // Fare bozuk alana girmek isterse nereye gitmeli?
+        //  - sağlam alandan geliyorsa ve ötede başka monitör varsa, bozuk şeridin üstünden atlayıp o monitöre geçer
         //  - başka yerden geliyorsa (ör. komşu monitörden) sağlam alanın kenarına konur
         // Böylece monitörler arasında ölü alan hissedilmez.
         bool Redirect(int px, int py, int fromX, int fromY, out int x, out int y)
         {
             x = px; y = py;
-            var c = Geo.Cut(screenBounds, edge, cut);
-            if (!c.Contains(px, py)) return false;
-            var g = Geo.Good(screenBounds, edge, cut);
+            var S = screenBounds;
+            var g = cuts.Good(S);
+            if (!S.Contains(px, py) || g.Contains(px, py)) return false;
             x = Math.Max(g.Left, Math.Min(g.Right - 1, px));
             y = Math.Max(g.Top, Math.Min(g.Bottom - 1, py));
             if (g.Contains(fromX, fromY))
             {
+                // Hangi bozuk şeride girdiyse o yönde ekranın dışına atla
                 int bx = px, by = py;
-                switch (edge)
+                if (px < g.Left) bx = S.Left - 1;
+                else if (px >= g.Right) bx = S.Right;
+                if (py < g.Top) by = S.Top - 1;
+                else if (py >= g.Bottom) by = S.Bottom;
+                // köşeden çıkılıyorsa sadece bir yönde atlamayı da dene
+                var tries = new[] { new Point(bx, by), new Point(bx, y), new Point(x, by) };
+                foreach (var t in tries)
                 {
-                    case Edge.Left: bx = c.Left - 1; break;
-                    case Edge.Right: bx = c.Right; break;
-                    case Edge.Top: by = c.Top - 1; break;
-                    case Edge.Bottom: by = c.Bottom; break;
+                    if (t.X == x && t.Y == y) continue;
+                    foreach (var s in screens)
+                        if (s.DeviceName != gdiName && s.Bounds.Contains(t)) { x = t.X; y = t.Y; return true; }
                 }
-                foreach (var s in screens)
-                    if (s.DeviceName != gdiName && s.Bounds.Contains(bx, by)) { x = bx; y = by; break; }
             }
             return true;
         }
@@ -241,7 +254,7 @@ namespace EkranKurtar
         }
 
         // Asıl yöntem: düşük seviyeli fare kancası. Hareket olayı daha işlenmeden yakalanır,
-        // böylece imleç kırık alanda bir an bile görünmez.
+        // böylece imleç bozuk alanda bir an bile görünmez.
         Win.LowLevelMouseProc hookProc;
         IntPtr hook = IntPtr.Zero;
         Screen[] screens = new Screen[0];
@@ -289,7 +302,7 @@ namespace EkranKurtar
             if ((Win.GetAsyncKeyState(0x01) & 0x8000) != 0) return; // sürükleme sırasında dokunma
 
             IntPtr h = Win.GetForegroundWindow();
-            if (h == IntPtr.Zero || (bar != null && h == bar.Handle)) return;
+            if (h == IntPtr.Zero || IsBar(h)) return;
             uint pid;
             Win.GetWindowThreadProcessId(h, out pid);
             if (pid == myPid) return;
@@ -304,7 +317,7 @@ namespace EkranKurtar
             var S = screenBounds;
             if (!S.Contains((r.Left + r.Right) / 2, (r.Top + r.Bottom) / 2)) return;
 
-            var G = Geo.Good(S, edge, cut);
+            var G = cuts.Good(S);
             const uint flags = Win.SWP_NOZORDER | Win.SWP_NOACTIVATE;
 
             // Kenarlıksız tam ekran -> sağlam alana sığdır
@@ -314,33 +327,25 @@ namespace EkranKurtar
                 return;
             }
 
-            // Normal pencere kırık alana taşmışsa it (7 px: Windows'un görünmez pencere kenarı)
+            // Normal pencere bozuk şeritlere taşmışsa it (7 px: Windows'un görünmez pencere kenarı).
+            // Sadece bozuk olan kenarlara bakılır; diğer kenarlardan komşu monitöre taşmak serbest.
             int x = r.Left, y = r.Top, w = r.Right - r.Left, ht = r.Bottom - r.Top;
             bool move = false;
-            switch (edge)
+            bool overL = cuts.L > 0 && x < G.Left - 10, overR = cuts.R > 0 && x + w > G.Right + 10;
+            if (overL || overR)
             {
-                case Edge.Left:
-                    if (r.Left < G.Left - 10) { x = G.Left - 7; w = Math.Min(w, G.Width + 14); move = true; }
-                    break;
-                case Edge.Right:
-                    if (r.Right > G.Right + 10)
-                    {
-                        w = Math.Min(w, G.Width + 14);
-                        x = G.Right + 7 - w;
-                        move = true;
-                    }
-                    break;
-                case Edge.Top:
-                    if (r.Top < G.Top - 2) { y = G.Top; ht = Math.Min(ht, G.Height + 7); move = true; }
-                    break;
-                case Edge.Bottom:
-                    if (r.Bottom > G.Bottom + 10)
-                    {
-                        ht = Math.Min(ht, G.Height + 7);
-                        y = G.Bottom + 7 - ht;
-                        move = true;
-                    }
-                    break;
+                w = Math.Min(w, G.Width + 14);
+                if (cuts.L > 0 && x < G.Left - 10) x = G.Left - 7;
+                if (cuts.R > 0 && x + w > G.Right + 10) x = G.Right + 7 - w;
+                move = true;
+            }
+            bool overT = cuts.T > 0 && y < G.Top - 2, overB = cuts.B > 0 && y + ht > G.Bottom + 10;
+            if (overT || overB)
+            {
+                ht = Math.Min(ht, G.Height + 7);
+                if (cuts.T > 0 && y < G.Top - 2) y = G.Top;
+                if (cuts.B > 0 && y + ht > G.Bottom + 10) y = G.Bottom + 7 - ht;
+                move = true;
             }
             if (move) Win.SetWindowPos(h, IntPtr.Zero, x, y, w, ht, flags);
         }
