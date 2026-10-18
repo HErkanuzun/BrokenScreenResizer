@@ -3,7 +3,7 @@
 #   BrokenScreenResizer-<sürüm>-Setup.exe     kurulum paketi (önerilen; varsa günceller, yoksa kurar)
 #   BrokenScreenResizer-<sürüm>-Portable.zip  kurulumsuz kullanım: program, kaldırma betiği, sürücü paketi, lisans
 #   SHA256SUMS.txt                            dosyaların SHA-256 özetleri (indirilen dosyayı doğrulamak için)
-# Kullanım: powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Version 1.0 [-Iscc <ISCC.exe yolu>]
+# Kullanım: powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Version 1.01 [-Iscc <ISCC.exe yolu>]
 param(
     [Parameter(Mandatory = $true)][string]$Version,
     [string]$Iscc = ''

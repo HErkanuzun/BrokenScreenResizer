@@ -73,10 +73,10 @@
 
 ```powershell
 # 1) Сравните контрольную сумму SHA-256 с SHA256SUMS.txt
-Get-FileHash .\BrokenScreenResizer-1.0-Setup.exe -Algorithm SHA256
+Get-FileHash .\BrokenScreenResizer-1.01-Setup.exe -Algorithm SHA256
 
 # 2) Проверьте, что файл собран GitHub из этого репозитория (нужен GitHub CLI)
-gh attestation verify .\BrokenScreenResizer-1.0-Setup.exe --repo HErkanuzun/BrokenScreenResizer
+gh attestation verify .\BrokenScreenResizer-1.01-Setup.exe --repo HErkanuzun/BrokenScreenResizer
 ```
 
 **Требования:** Windows 10 или 11 (64 бит), .NET Framework 4.x (входит в Windows). Для способа «Виртуальный монитор» нужна Windows 10 1903 или новее.
@@ -178,7 +178,7 @@ build.bat
 Результат — `bin\BrokenScreenResizer.exe`. Готовый подписанный пакет драйвера из `driver\package` встраивается в exe. Для пакетов выпуска (установщик + портативный ZIP + контрольные суммы) нужен [Inno Setup 6](https://jrsoftware.org/isinfo.php):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Version 1.0
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Version 1.01
 ```
 
 <details>
@@ -209,6 +209,7 @@ docs/         README на других языках и изображения
 
 Подробнее: [CHANGELOG.md](../CHANGELOG.md) · Все выпуски: [Releases](https://github.com/HErkanuzun/BrokenScreenResizer/releases)
 
+- **v1.01** — В широком и полноэкранном окне содержимое выравнивается по центру. Пока настройка применена, недоступные элементы затуманены и помечены замком, а кнопка «Отменить» выделена.
 - **v1.0** — Первый стабильный выпуск: установщик (обновляет или устанавливает), запуск с учётом версии, нет красного экрана и обрезки по умолчанию при запуске, удаление без подозрительных для антивирусов приёмов, проверяемые файлы выпуска.
 - **v0.7** — Удалён режим драйвера; полное удаление; интерфейс для маленьких экранов.
 - **v0.6** — Новое название (Broken Screen Resizer), несколько повреждённых краёв.

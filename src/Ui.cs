@@ -35,6 +35,37 @@ namespace BrokenScreenResizer
 
         public static Color Dim(Color c) { return Mix(c, Bg, 0.55f); }
 
+        // Küçük asma kilit simgesi (cx: sol kenar, cy: dikey orta, size: yükseklik)
+        public static void Padlock(Graphics g, float x, float cy, float size, Color c)
+        {
+            float bw = size * 0.85f, bh = size * 0.6f, by = cy - size / 2 + size * 0.4f;
+            using (var pen = new Pen(c, Math.Max(1.2f, size * 0.13f)))
+                g.DrawArc(pen, x + bw * 0.2f, cy - size / 2, bw * 0.6f, size * 0.62f, 180, 180);
+            using (var pen = new Pen(c, Math.Max(1.2f, size * 0.13f)))
+            {
+                g.DrawLine(pen, x + bw * 0.2f, cy - size / 2 + size * 0.31f, x + bw * 0.2f, by);
+                g.DrawLine(pen, x + bw * 0.8f, cy - size / 2 + size * 0.31f, x + bw * 0.8f, by);
+            }
+            Fill(g, new RectangleF(x, by, bw, bh), size * 0.12f, c);
+        }
+
+        // "Sisli" kilit görünümü: ayar uygulanmışken değiştirilemeyen öğelerin üstüne çekilen buğu.
+        // Sadece şeklin içine çizilir (köşelerde dikdörtgen leke kalmasın).
+        public static void Fog(Graphics g, RectangleF r, float rad)
+        {
+            using (var path = Round(r, rad))
+            {
+                var st = g.Save();
+                g.SetClip(path, CombineMode.Intersect);
+                using (var b = new LinearGradientBrush(r, Color.FromArgb(150, 58, 64, 76), Color.FromArgb(110, 40, 44, 54), 90f))
+                    g.FillRectangle(b, r);
+                using (var pen = new Pen(Color.FromArgb(22, 210, 220, 235), P(1.5f)))
+                    for (float d = -r.Height; d < r.Width + r.Height; d += P(9))
+                        g.DrawLine(pen, r.X + d, r.Bottom, r.X + d + r.Height, r.Y);
+                g.Restore(st);
+            }
+        }
+
         public static GraphicsPath Round(RectangleF r, float rad)
         {
             var p = new GraphicsPath();
@@ -154,6 +185,14 @@ namespace BrokenScreenResizer
         protected override void OnEnabledChanged(EventArgs e) { Invalidate(); base.OnEnabledChanged(e); }
         protected override void OnTextChanged(EventArgs e) { Invalidate(); base.OnTextChanged(e); }
         protected Color C(Color c) { return Enabled ? c : Theme.Dim(c); }
+
+        // Ayar uygulanmışken kilitli (sisli) görünür
+        bool fogged;
+        public bool Fogged { get { return fogged; } set { if (fogged == value) return; fogged = value; Invalidate(); } }
+        protected void FogOver(Graphics g, float rad)
+        {
+            if (fogged) Theme.Fog(g, new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f), rad);
+        }
     }
 
     // ------------------------------------------------------------------ Düğme
@@ -193,6 +232,7 @@ namespace BrokenScreenResizer
             var f = Kind == BtnKind.Primary ? new Font(Font, FontStyle.Bold) : Font;
             Theme.Draw(g, Text, f, new RectangleF(0, 0, Width, Height), fg, StringAlignment.Center, StringAlignment.Center, false);
             if (f != Font) f.Dispose();
+            FogOver(g, Theme.P(8));
         }
     }
 
@@ -266,6 +306,7 @@ namespace BrokenScreenResizer
                 Theme.Draw(g, items[i], f, tr, fg, StringAlignment.Center, StringAlignment.Center, false);
                 if (f != Font) f.Dispose();
             }
+            FogOver(g, Theme.P(9));
         }
     }
 
@@ -353,6 +394,7 @@ namespace BrokenScreenResizer
                     g.FillEllipse(b, x - k / 2 - Theme.P(5), cy - k / 2 - Theme.P(5), k + Theme.P(10), k + Theme.P(10));
             using (var b = new SolidBrush(C(Color.White))) g.FillEllipse(b, x - k / 2, cy - k / 2, k, k);
             using (var p = new Pen(C(Theme.Accent), Theme.P(3))) g.DrawEllipse(p, x - k / 2, cy - k / 2, k, k);
+            if (Fogged) Theme.Fog(g, new RectangleF(1, cy - Theme.P(13), Width - 2, Theme.P(26)), Theme.P(13));
         }
 
         bool focusedOrHover { get { return Enabled && (hover || drag); } }
@@ -398,6 +440,7 @@ namespace BrokenScreenResizer
             using (var b = new SolidBrush(C(on ? Color.White : Theme.Sub))) g.FillEllipse(b, kx, y + Theme.P(3), k, k);
             Theme.Draw(g, Text, Font, new RectangleF(w + Theme.P(10), 0, Width - w - Theme.P(10), Height), C(Theme.Text),
                 StringAlignment.Near, StringAlignment.Center, false);
+            if (Fogged) Theme.Fog(g, tr, h / 2);
         }
     }
 
@@ -473,6 +516,7 @@ namespace BrokenScreenResizer
                 Theme.Draw(g, Desc, Font, new RectangleF(pad, dy, Width - pad * 2, Height - dy - Theme.P(8)),
                     C(Theme.Sub), StringAlignment.Near, StringAlignment.Near, true);
             }
+            if (Fogged) Theme.Fog(g, r, Theme.P(12));
         }
     }
 
@@ -518,7 +562,7 @@ namespace BrokenScreenResizer
         Cuts cuts = new Cuts(480, 0, 0, 0);
         Edge focus = Edge.Left;
         public bool Applied;
-        public string BrokenLabel = "", ResultLabel = "", AppliedLabel = "";
+        public string BrokenLabel = "", ResultLabel = "", AppliedLabel = "", LockedLabel = "";
         public event Action<Cuts> CutsChanged;
         public event Action<Edge> FocusChanged;
 
@@ -761,6 +805,7 @@ namespace BrokenScreenResizer
             }
             if (active)
                 foreach (var edge in Cuts.All) DrawHandle(g, gr, edge);
+            if (Fogged) Theme.Fog(g, frame, Theme.P(14));
 
             // etiketler
             using (var big = new Font(Font.FontFamily, Font.Size + 7f, FontStyle.Bold))
@@ -797,6 +842,19 @@ namespace BrokenScreenResizer
                                             ls.Width + Theme.P(12), ls.Height + Theme.P(4));
                     Theme.Fill(g, lr, lr.Height / 2, Color.FromArgb(200, 20, 8, 10));
                     Theme.Draw(g, BrokenLabel, small, lr, Theme.Danger, StringAlignment.Center, StringAlignment.Center, false);
+                }
+
+                // kilitliyken üst ortada asma kilit etiketi
+                if (Fogged && LockedLabel != "")
+                {
+                    var ks = g.MeasureString(LockedLabel, small);
+                    float pw = Math.Min(s.Width - Theme.P(12), ks.Width + Theme.P(34)), ph = ks.Height + Theme.P(8);
+                    var pr = new RectangleF(s.X + (s.Width - pw) / 2, s.Y + Theme.P(8), pw, ph);
+                    Theme.Fill(g, pr, ph / 2, Color.FromArgb(225, 18, 20, 25));
+                    Theme.Stroke(g, pr, ph / 2, Color.FromArgb(120, Theme.Sub), 1);
+                    Theme.Padlock(g, pr.X + Theme.P(10), pr.Y + ph / 2, Theme.P(11), Theme.Text);
+                    Theme.Draw(g, LockedLabel, small, new RectangleF(pr.X + Theme.P(25), pr.Y, pr.Width - Theme.P(29), ph), Theme.Text,
+                        StringAlignment.Near, StringAlignment.Center, false);
                 }
             }
         }

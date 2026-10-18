@@ -73,10 +73,10 @@
 
 ```powershell
 # 1) 将 SHA-256 校验和与 SHA256SUMS.txt 对比
-Get-FileHash .\BrokenScreenResizer-1.0-Setup.exe -Algorithm SHA256
+Get-FileHash .\BrokenScreenResizer-1.01-Setup.exe -Algorithm SHA256
 
 # 2) 验证文件由 GitHub 用本仓库代码构建（需要 GitHub CLI）
-gh attestation verify .\BrokenScreenResizer-1.0-Setup.exe --repo HErkanuzun/BrokenScreenResizer
+gh attestation verify .\BrokenScreenResizer-1.01-Setup.exe --repo HErkanuzun/BrokenScreenResizer
 ```
 
 **系统要求：** Windows 10 或 11（64 位），.NET Framework 4.x（Windows 自带）。虚拟显示器方式需要 Windows 10 1903 或更高版本。
@@ -178,7 +178,7 @@ build.bat
 输出为 `bin\BrokenScreenResizer.exe`。`driver\package` 中预先构建并已签名的驱动包会嵌入到 exe 中。构建发布包（安装程序 + 便携版 ZIP + 校验和）需要 [Inno Setup 6](https://jrsoftware.org/isinfo.php)：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Version 1.0
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Version 1.01
 ```
 
 <details>
@@ -209,6 +209,7 @@ docs/         其他语言的 README 和图片
 
 详情：[CHANGELOG.md](../CHANGELOG.md) · 所有版本：[Releases](https://github.com/HErkanuzun/BrokenScreenResizer/releases)
 
+- **v1.01** — 在宽窗口和全屏时内容居中显示。设置生效期间，无法更改的部分会变为雾化并标记为锁定，“还原”按钮会突出显示。
 - **v1.0** — 首个稳定版：安装程序（已安装则更新，否则安装）、按版本启动、启动时不再显示红色屏幕或默认裁剪、对杀毒软件友好的卸载方式、可验证的发布文件。
 - **v0.7** — 移除驱动模式；彻底卸载；适配小屏幕的界面。
 - **v0.6** — 新名称（Broken Screen Resizer），支持多条损坏的边。

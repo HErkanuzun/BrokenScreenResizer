@@ -124,6 +124,18 @@ namespace BrokenScreenResizer
             }
         }
 
+        static string EditHint()
+        {
+            return L.T("Bozuk olan her kenarı sürükle (birden fazla kenar olabilir). Köşeden tutunca iki kenar birlikte, ortadan tutunca tüm alan taşınır.",
+                       "Drag each broken edge (more than one is fine). Grab a corner to move two edges, or the middle to move the whole area.");
+        }
+
+        static string LockedHint()
+        {
+            return L.T("Ayar uygulandı, sisli kısımlar kilitli. Bozuk alanı ya da yöntemi değiştirmek için önce Geri al'a bas; ekran eski haline döner, sonra yeniden ayarlayıp Uygula'ya basabilirsin.",
+                       "The setting is applied, so the faded parts are locked. To change the broken area or the method, press Revert first; the screen goes back to normal, then adjust and press Apply again.");
+        }
+
         // ------------------------------------------------------------------ Arayüz kurulumu
         Label Section(string text)
         {
@@ -188,12 +200,12 @@ namespace BrokenScreenResizer
             preview.BrokenLabel = L.T("Bozuk", "Broken");
             preview.ResultLabel = L.T("Windows'un göreceği ekran", "What Windows will see");
             preview.AppliedLabel = L.T("Etkin", "Active");
+            preview.LockedLabel = L.T("Kilitli · değiştirmek için Geri al", "Locked · press Revert to change");
             preview.CutsChanged += delegate (Cuts c) { OnPreviewCuts(c); };
             preview.FocusChanged += delegate (Edge e) { SetFocus(e); };
 
             lblHint = new Label();
-            lblHint.Text = L.T("Bozuk olan her kenarı sürükle (birden fazla kenar olabilir). Köşeden tutunca iki kenar birlikte, ortadan tutunca tüm alan taşınır.",
-                               "Drag each broken edge (more than one is fine). Grab a corner to move two edges, or the middle to move the whole area.");
+            lblHint.Text = EditHint();
             lblHint.ForeColor = Theme.Sub;
             lblHint.Font = new Font(Font.FontFamily, 8.5f);
             lblHint.AutoSize = true;
@@ -333,8 +345,11 @@ namespace BrokenScreenResizer
             int ew = P(380);
             twoColumns = CW >= P(980);
             int leftW = twoColumns ? Math.Min(CW - ew - P(18), P(760)) : CW;
-            int x0 = leftW >= P(520) ? P(26) : P(14);
-            int w = leftW - x0 * 2;
+            // geniş pencerede (tam ekran vb.) iki sütun birlikte ortalanır; sağda boşluk birikmez
+            int ox = twoColumns ? Math.Max(0, (CW - leftW - ew - P(18)) / 2) : 0;
+            int margin = leftW >= P(520) ? P(26) : P(14);
+            int x0 = margin + ox;
+            int w = leftW - margin * 2;
             int y = P(22);
 
             // başlık; dar pencerede dil seçici alt satıra iner
@@ -442,7 +457,7 @@ namespace BrokenScreenResizer
 
             explainer.Visible = twoColumns;
             explainer.Running = Visible && twoColumns;
-            if (twoColumns) explainer.SetBounds(leftW - P(6), P(22), ew, y - P(44));
+            if (twoColumns) explainer.SetBounds(ox + leftW - P(6), P(22), ew, y - P(44));
             return y;
         }
 
@@ -641,7 +656,8 @@ namespace BrokenScreenResizer
         void UpdateState()
         {
             var m = Selected;
-            bool editable = !cfg.Active && !busy && !(m != null && m.IsModified);
+            bool locked = cfg.Active || (m != null && m.IsModified);   // uygulanmış ayar var: Geri al'a kadar değişmez
+            bool editable = !locked && !busy;
             segMonitor.Enabled = !cfg.Active && !busy;
             segEdge.Enabled = editable;
             slider.Enabled = editable;
@@ -656,7 +672,18 @@ namespace BrokenScreenResizer
             tPreview.Enabled = editable;
             shownAny = cfg.Cuts.Any;
             btnApply.Enabled = editable && m != null && shownAny;
-            btnRevert.Enabled = !busy && (cfg.Active || (m != null && m.IsModified));
+            btnRevert.Enabled = !busy && locked;
+
+            // kilitli kısımlar sisli görünür; yapılacak tek şey Geri al olduğu için o öne çıkar
+            foreach (var c in new Ctl[] { segEdge, slider, btnMinus, btnPlus, preview, cardSoft, cardVirtual, tPreview }) c.Fogged = locked;
+            segMonitor.Fogged = cfg.Active;
+            foreach (var l in new[] { secEdge, secArea, secMethod }) l.ForeColor = locked ? Theme.Dim(Theme.Sub) : Theme.Sub;
+            lblValue.ForeColor = locked ? Theme.Dim(Theme.Text) : Theme.Text;
+            lblHint.ForeColor = locked ? Theme.Warn : Theme.Sub;
+            lblHint.Text = locked ? LockedHint() : EditHint();
+            btnRevert.Kind = locked ? BtnKind.Primary : BtnKind.Secondary;
+            btnApply.Kind = locked ? BtnKind.Secondary : BtnKind.Primary;
+            btnRevert.Invalidate(); btnApply.Invalidate();
 
             if (cfg.Active && cfg.ActiveMode == Mode.Driver)
             {
