@@ -9,8 +9,9 @@
 DEFINE_GUID(GUID_DEVINTERFACE_BSR_VDD,
     0x69a8bde3, 0x4c78, 0x4ba6, 0xad, 0x55, 0x75, 0xa6, 0xb2, 0x76, 0x0c, 0xa4);
 
-#define BSRVDD_PROTOCOL_VERSION 1
-#define BSRVDD_MAX_MONITORS     4
+// 1: v0.6-v1.01. 2 (v1.5): en fazla 8 monitör, aynı boyutta birden fazla monitör (BSRVDD_ADD_NEW)
+#define BSRVDD_PROTOCOL_VERSION 2
+#define BSRVDD_MAX_MONITORS     8
 
 // CTL_CODE(FILE_DEVICE_UNKNOWN, fn, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define BSRVDD_CTL(fn) (((0x22) << 16) | ((fn) << 2))
@@ -34,7 +35,13 @@ typedef struct BSRVDD_ADD_IN
     unsigned int Width;
     unsigned int Height;
     unsigned int RefreshRate; // Hz
+    unsigned int Flags;       // protokol 2; eski uygulamalar bu alanı göndermez (12 bayt)
 } BSRVDD_ADD_IN;
+
+#define BSRVDD_ADD_IN_V1_SIZE 12
+// Aynı boyutta monitör olsa bile yeni bir monitör ekle (Ekran Çoğaltıcı: ör. 2x2 = dört eş monitör).
+// Bayrak yoksa aynı boyuttaki mevcut monitör döndürülür (v1.01 ve öncesinin davranışı).
+#define BSRVDD_ADD_NEW 0x1
 
 typedef struct BSRVDD_ADD_OUT
 {

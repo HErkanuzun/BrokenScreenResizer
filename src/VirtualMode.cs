@@ -249,13 +249,15 @@ namespace BrokenScreenResizer
     }
 
     // ------------------------------------------------------------------ Ayna penceresi (fiziksel monitörde)
+    // Fiziksel monitörü kaplayan siyah pencere; içindeki her Büyüteç alt penceresi bir sanal monitörün
+    // görüntüsünü monitörün bir bölgesine 1:1 çizer (bozuk ekran: tek bölge, Ekran Çoğaltıcı: birden çok).
     class MirrorForm : Form
     {
-        IntPtr mag = IntPtr.Zero;
-        Win.RECT source;
-        Rectangle magRect;
+        readonly IntPtr[] mags;
+        readonly Win.RECT[] sources;
+        readonly Rectangle[] magRects;
 
-        public MirrorForm(Rectangle physBounds, Rectangle magArea, Rectangle sourceRect)
+        public MirrorForm(Rectangle physBounds, Rectangle[] magAreas, Rectangle[] sourceRects)
         {
             FormBorderStyle = FormBorderStyle.None;
             ShowInTaskbar = false;
@@ -263,13 +265,19 @@ namespace BrokenScreenResizer
             TopMost = true;
             BackColor = Color.Black;
             Bounds = physBounds;
-            magRect = magArea;
-            SetSource(sourceRect);
+            magRects = magAreas;
+            mags = new IntPtr[magAreas.Length];
+            sources = new Win.RECT[magAreas.Length];
+            SetSources(sourceRects);
         }
 
-        public void SetSource(Rectangle r)
+        public void SetSources(Rectangle[] rs)
         {
-            source.Left = r.Left; source.Top = r.Top; source.Right = r.Right; source.Bottom = r.Bottom;
+            for (int i = 0; i < sources.Length && i < rs.Length; i++)
+            {
+                var r = rs[i];
+                sources[i].Left = r.Left; sources[i].Top = r.Top; sources[i].Right = r.Right; sources[i].Bottom = r.Bottom;
+            }
         }
 
         protected override CreateParams CreateParams
@@ -288,27 +296,42 @@ namespace BrokenScreenResizer
         {
             base.OnHandleCreated(e);
             VNative.SetLayeredWindowAttributes(Handle, 0, 255, 2);
-            mag = VNative.CreateWindowEx(0, "Magnifier", "BrokenScreenResizerMirror",
-                VNative.WS_CHILD | VNative.WS_VISIBLE | VNative.MS_SHOWMAGNIFIEDCURSOR,
-                magRect.X, magRect.Y, magRect.Width, magRect.Height, Handle, IntPtr.Zero, VNative.GetModuleHandle(null), IntPtr.Zero);
-            var t = new VNative.MAGTRANSFORM();
-            t.v = new float[] { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
-            if (mag != IntPtr.Zero) VNative.MagSetWindowTransform(mag, ref t);
+            for (int i = 0; i < magRects.Length; i++)
+            {
+                var r = magRects[i];
+                mags[i] = VNative.CreateWindowEx(0, "Magnifier", "BrokenScreenResizerMirror" + (i + 1),
+                    VNative.WS_CHILD | VNative.WS_VISIBLE | VNative.MS_SHOWMAGNIFIEDCURSOR,
+                    r.X, r.Y, r.Width, r.Height, Handle, IntPtr.Zero, VNative.GetModuleHandle(null), IntPtr.Zero);
+                var t = new VNative.MAGTRANSFORM();
+                t.v = new float[] { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
+                if (mags[i] != IntPtr.Zero) VNative.MagSetWindowTransform(mags[i], ref t);
+            }
         }
 
-        public bool Ready { get { return mag != IntPtr.Zero; } }
+        public bool Ready
+        {
+            get
+            {
+                foreach (var m in mags) if (m == IntPtr.Zero) return false;
+                return mags.Length > 0;
+            }
+        }
 
         // Her karede çağrılır
         public void Frame()
         {
-            if (mag == IntPtr.Zero) return;
-            VNative.MagSetWindowSource(mag, source);
-            VNative.InvalidateRect(mag, IntPtr.Zero, true);
+            for (int i = 0; i < mags.Length; i++)
+            {
+                if (mags[i] == IntPtr.Zero) continue;
+                VNative.MagSetWindowSource(mags[i], sources[i]);
+                VNative.InvalidateRect(mags[i], IntPtr.Zero, true);
+            }
         }
 
         protected override void OnHandleDestroyed(EventArgs e)
         {
-            if (mag != IntPtr.Zero) { VNative.DestroyWindow(mag); mag = IntPtr.Zero; }
+            for (int i = 0; i < mags.Length; i++)
+                if (mags[i] != IntPtr.Zero) { VNative.DestroyWindow(mags[i]); mags[i] = IntPtr.Zero; }
             base.OnHandleDestroyed(e);
         }
     }
@@ -318,13 +341,23 @@ namespace BrokenScreenResizer
     // ayna akıcı kalır, fare de takılmaz.
     class VirtualMirror
     {
+        // Bir sanal monitör ve görüntüsünün fiziksel monitörde çizileceği yer (monitörün kendi pikselleri)
+        public class Target
+        {
+            public string Gdi;
+            public Rectangle Area;
+        }
+
         class Rects
         {
-            public Rectangle Phys, Virt;
+            public Rectangle Phys;
+            public Rectangle[] Virt;
             public int Fps;
         }
 
-        readonly string physGdi, virtGdi;
+        readonly string physGdi;
+        readonly Target[] targets;
+        readonly bool fromCuts;   // bozuk ekran modu: tek hedef, yeri kesimlerden hesaplanır
         readonly Cuts cuts;
         volatile Rects rects;
         volatile bool running, layoutChanged;
@@ -339,26 +372,55 @@ namespace BrokenScreenResizer
 
         System.Windows.Forms.Timer winTimer;
 
+        // Bozuk ekran modu: sağlam alan boyutundaki tek sanal monitör, monitörün sağlam alanına çizilir
         public VirtualMirror(string physGdi, string virtGdi, Cuts cuts)
         {
-            this.physGdi = physGdi; this.virtGdi = virtGdi; this.cuts = cuts;
+            this.physGdi = physGdi;
+            this.targets = new[] { new Target { Gdi = virtGdi } };
+            this.cuts = cuts;
+            fromCuts = true;
         }
 
-        // Fiziksel monitörün (artık sadece ayna) ve sanal monitörün masaüstü koordinatları
+        // Ekran Çoğaltıcı: her sanal monitör, monitörün kendi bölgesine çizilir
+        public VirtualMirror(string physGdi, Target[] targets)
+        {
+            this.physGdi = physGdi;
+            this.targets = targets;
+        }
+
+        // Fiziksel monitörün (artık sadece ayna) ve sanal monitörlerin masaüstü koordinatları
         public Rectangle PhysRect { get { var r = rects; return r != null ? r.Phys : Rectangle.Empty; } }
-        public Rectangle VirtRect { get { var r = rects; return r != null ? r.Virt : Rectangle.Empty; } }
+        public Rectangle VirtRect { get { var r = rects; return r != null && r.Virt.Length > 0 ? r.Virt[0] : Rectangle.Empty; } }
+        public int Count { get { return targets.Length; } }
 
         Rects ReadRects()
         {
             var now = DisplayLayout.Capture();
             var p = DisplayLayout.Find(now, physGdi);
-            var v = DisplayLayout.Find(now, virtGdi);
-            if (p == null || v == null || !p.Attached || !v.Attached) return null;
+            if (p == null || !p.Attached) return null;
             var r = new Rects();
             r.Phys = p.Rect;
-            r.Virt = v.Rect;
+            r.Virt = new Rectangle[targets.Length];
+            for (int i = 0; i < targets.Length; i++)
+            {
+                var v = DisplayLayout.Find(now, targets[i].Gdi);
+                if (v == null || !v.Attached) return null;
+                r.Virt[i] = v.Rect;
+            }
             r.Fps = Math.Max(30, Math.Min(144, p.Freq > 1 ? p.Freq : 60));
             return r;
+        }
+
+        // Her hedefin fiziksel monitördeki yeri (sanal monitörden büyük olamaz)
+        Rectangle[] Areas(Rects r)
+        {
+            var a = new Rectangle[targets.Length];
+            for (int i = 0; i < targets.Length; i++)
+            {
+                var want = fromCuts ? cuts.Good(new Rectangle(0, 0, r.Phys.Width, r.Phys.Height)) : targets[i].Area;
+                a[i] = new Rectangle(want.X, want.Y, Math.Min(want.Width, r.Virt[i].Width), Math.Min(want.Height, r.Virt[i].Height));
+            }
+            return a;
         }
 
         public string Start()
@@ -409,9 +471,7 @@ namespace BrokenScreenResizer
                     return;
                 }
                 var r = rects;
-                var good = cuts.Good(new Rectangle(0, 0, r.Phys.Width, r.Phys.Height));
-                var area = new Rectangle(good.X, good.Y, Math.Min(good.Width, r.Virt.Width), Math.Min(good.Height, r.Virt.Height));
-                form = new MirrorForm(r.Phys, area, r.Virt);
+                form = new MirrorForm(r.Phys, Areas(r), r.Virt);
                 form.Show();
                 if (!form.Ready)
                 {
@@ -437,7 +497,7 @@ namespace BrokenScreenResizer
                         {
                             rects = nr;
                             form.Bounds = nr.Phys;
-                            form.SetSource(nr.Virt);
+                            form.SetSources(nr.Virt);
                         }
                     }
 
@@ -516,7 +576,7 @@ namespace BrokenScreenResizer
                 {
                     Win.POINT cur;
                     if (Win.GetCursorPos(out cur) && r.Phys.Contains(cur.X, cur.Y))
-                        Win.SetCursorPos(r.Virt.X + r.Virt.Width / 2, r.Virt.Y + r.Virt.Height / 2);
+                        Win.SetCursorPos(r.Virt[0].X + r.Virt[0].Width / 2, r.Virt[0].Y + r.Virt[0].Height / 2);
                     return new IntPtr(1);
                 }
             }
@@ -531,14 +591,15 @@ namespace BrokenScreenResizer
             var r = rects;
             if (r == null) return;
             IntPtr mirror = mirrorHwnd;
+            var areas = Areas(r);
             VNative.EnumWindows(delegate (IntPtr h, IntPtr l)
             {
-                try { Rescue(h, mirror, r); } catch { }
+                try { Rescue(h, mirror, r, areas); } catch { }
                 return true;
             }, IntPtr.Zero);
         }
 
-        static void Rescue(IntPtr h, IntPtr mirror, Rects r)
+        static void Rescue(IntPtr h, IntPtr mirror, Rects all, Rectangle[] areas)
         {
             if (h == mirror || !VNative.IsWindowVisible(h) || Win.IsIconic(h)) return;
             int ex = VNative.GetWindowLong(h, VNative.GWL_EXSTYLE);
@@ -553,7 +614,13 @@ namespace BrokenScreenResizer
             Win.RECT wr;
             if (!Win.GetWindowRect(h, out wr)) return;
             int cx = (wr.Left + wr.Right) / 2, cy = (wr.Top + wr.Bottom) / 2;
-            if (!r.Phys.Contains(cx, cy)) return;
+            if (!all.Phys.Contains(cx, cy)) return;
+
+            // Pencere monitörün hangi bölgesine düştüyse o bölgenin sanal monitörüne taşınır
+            int target = 0;
+            for (int i = 0; i < areas.Length; i++)
+                if (areas[i].Contains(cx - all.Phys.X, cy - all.Phys.Y)) { target = i; break; }
+            var v = all.Virt[target];
 
             // Asenkron çağrılar: yanıt vermeyen başka bir program Broken Screen Resizer'ı kilitleyemesin
             const uint flags = Win.SWP_NOZORDER | Win.SWP_NOACTIVATE | VNative.SWP_ASYNCWINDOWPOS;
@@ -561,13 +628,13 @@ namespace BrokenScreenResizer
             {
                 // Büyütülmüş pencere: küçült, sanal monitöre taşı, orada yeniden büyüt
                 VNative.ShowWindowAsync(h, VNative.SW_RESTORE);
-                Win.SetWindowPos(h, IntPtr.Zero, r.Virt.X + r.Virt.Width / 10, r.Virt.Y + r.Virt.Height / 10,
-                                 r.Virt.Width * 8 / 10, r.Virt.Height * 8 / 10, flags);
+                Win.SetWindowPos(h, IntPtr.Zero, v.X + v.Width / 10, v.Y + v.Height / 10,
+                                 v.Width * 8 / 10, v.Height * 8 / 10, flags);
                 VNative.ShowWindowAsync(h, VNative.SW_MAXIMIZE);
                 return;
             }
-            int w = Math.Min(wr.Right - wr.Left, r.Virt.Width), ht = Math.Min(wr.Bottom - wr.Top, r.Virt.Height);
-            int x = r.Virt.X + (r.Virt.Width - w) / 2, y = r.Virt.Y + (r.Virt.Height - ht) / 2;
+            int w = Math.Min(wr.Right - wr.Left, v.Width), ht = Math.Min(wr.Bottom - wr.Top, v.Height);
+            int x = v.X + (v.Width - w) / 2, y = v.Y + (v.Height - ht) / 2;
             Win.SetWindowPos(h, IntPtr.Zero, x, y, w, ht, flags);
         }
 
@@ -623,6 +690,63 @@ namespace BrokenScreenResizer
             list.Add(p);
 
             // birincil ekran (0,0)'da olmalı
+            LayoutEntry prim = null;
+            foreach (var e in list) if (e.Primary) prim = e;
+            if (prim != null && (prim.X != 0 || prim.Y != 0))
+            {
+                int ox = prim.X, oy = prim.Y;
+                foreach (var e in list) { e.X -= ox; e.Y -= oy; }
+            }
+            return DisplayLayout.Apply(list);
+        }
+
+        // Ekran Çoğaltıcı: sanal monitörler, monitördeki bölgeleriyle aynı yerleşimde fiziksel monitörün yerini alır.
+        // Böylece fare bir bölgeden komşusuna, ekranda göründüğü yerden geçer. Bölgeler monitörün içinde
+        // kaldığı için diğer monitörler kaydırılmaz; fiziksel monitör (artık sadece ayna) en alta alınır.
+        public static int ArrangeSplit(string physGdi, string[] virtGdis, Rectangle[] regions)
+        {
+            var now = DisplayLayout.Capture();
+            var p = DisplayLayout.Find(now, physGdi);
+            if (p == null || !p.Attached || virtGdis.Length != regions.Length || regions.Length == 0) return -5;
+
+            var list = new List<LayoutEntry>();
+            foreach (var e in now)
+                if (e.Attached && e.Gdi != physGdi && Array.IndexOf(virtGdis, e.Gdi) < 0) list.Add(e);
+
+            // birincil ekran bölündüyse en büyük bölge birincil olur
+            int primary = -1;
+            if (p.Primary)
+            {
+                long best = -1;
+                for (int i = 0; i < regions.Length; i++)
+                {
+                    long a = (long)regions[i].Width * regions[i].Height;
+                    if (a > best) { best = a; primary = i; }
+                }
+                foreach (var e in list) e.Primary = false;
+            }
+
+            var virt = new List<LayoutEntry>();
+            for (int i = 0; i < regions.Length; i++)
+            {
+                var v = DisplayLayout.Find(now, virtGdis[i]);
+                if (v == null) return -5;
+                v.Attached = true;
+                v.X = p.X + regions[i].X; v.Y = p.Y + regions[i].Y;
+                v.W = regions[i].Width; v.H = regions[i].Height; v.Freq = 0;
+                v.Primary = i == primary;
+                virt.Add(v);
+            }
+
+            int bottom = p.Y + p.H;
+            foreach (var e in list)
+                if (e.X < p.X + p.W && e.X + e.W > p.X) bottom = Math.Max(bottom, e.Y + e.H);
+            p.Y = bottom;
+            p.Primary = false;
+
+            list.AddRange(virt);
+            list.Add(p);
+
             LayoutEntry prim = null;
             foreach (var e in list) if (e.Primary) prim = e;
             if (prim != null && (prim.X != 0 || prim.Y != 0))
