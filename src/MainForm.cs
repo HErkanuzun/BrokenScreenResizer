@@ -678,6 +678,29 @@ namespace EkranKurtar
             if (mirror != null) { mirror.Stop(); mirror = null; }
         }
 
+        // Pencere ulaşılamayan bir yerde kaldıysa (aynanın arkası ya da hiçbir ekran) görünür yere getirir
+        public void BringIntoView()
+        {
+            var center = new Point(Left + Width / 2, Top + Height / 2);
+            Rectangle target = Rectangle.Empty;
+            if (mirror != null && mirror.PhysRect.Contains(center)) target = mirror.VirtRect;
+            else
+            {
+                bool onScreen = false;
+                foreach (var s in Screen.AllScreens) if (s.WorkingArea.Contains(center)) onScreen = true;
+                if (!onScreen) target = Screen.PrimaryScreen.WorkingArea;
+            }
+            if (target.IsEmpty) return;
+            if (WindowState != FormWindowState.Normal) WindowState = FormWindowState.Normal;
+            Location = new Point(target.X + Math.Max(0, (target.Width - Width) / 2), target.Y + Math.Max(0, (target.Height - Height) / 2));
+        }
+
+        // Program kapanırken ekranı güvenli hale getirir (pencere hiç açılmamış olsa bile)
+        public void Shutdown()
+        {
+            StopShield();
+            if (mirror != null) { StopMirror(); DisplayLayout.RestoreBackup(); Vdd.RemoveAll(); }
+        }
 
         void RevertClicked()
         {

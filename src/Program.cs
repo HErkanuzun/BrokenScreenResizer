@@ -26,9 +26,47 @@ namespace EkranKurtar
 
             form.Notify += delegate (string msg) { tray.ShowBalloonTip(4000, "Ekran Kurtar", msg, ToolTipIcon.Info); };
 
+            // İkinci kez açılınca pencereyi göster; "--reset" gelince düzgünce kapan
+            invoker = new Control();
+            invoker.CreateControl();
+            var signalThread = new Thread(ListenSignals);
+            signalThread.IsBackground = true;
+            signalThread.Start();
+
             form.RestoreActive();
 
             if (!startHidden) ShowForm();
+        }
+
+        public const string MutexName = "EkranKurtar_SingleInstance";
+        public const string ShowEvent = "EkranKurtar_Show", ExitEvent = "EkranKurtar_Exit";
+        readonly Control invoker;
+        readonly EventWaitHandle showSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEvent);
+        readonly EventWaitHandle exitSignal = new EventWaitHandle(false, EventResetMode.AutoReset, ExitEvent);
+
+        // Başka bir Ekran Kurtar işleminden çalışan kopyaya sinyal gönderir
+        public static bool Signal(string name)
+        {
+            try
+            {
+                using (var e = EventWaitHandle.OpenExisting(name)) return e.Set();
+            }
+            catch { return false; }
+        }
+
+        void ListenSignals()
+        {
+            var handles = new WaitHandle[] { showSignal, exitSignal };
+            while (true)
+            {
+                int i = WaitHandle.WaitAny(handles);
+                try
+                {
+                    if (i == 0) invoker.BeginInvoke((MethodInvoker)ShowForm);
+                    else { invoker.BeginInvoke((MethodInvoker)Quit); return; }
+                }
+                catch { return; }
+            }
         }
 
         ContextMenuStrip BuildMenu()
@@ -44,11 +82,13 @@ namespace EkranKurtar
         {
             form.Show();
             if (form.WindowState == FormWindowState.Minimized) form.WindowState = FormWindowState.Normal;
+            form.BringIntoView();
             form.Activate();
         }
 
         void Quit()
         {
+            form.Shutdown();
             form.ExitRequested = true;
             form.Close();
             tray.Visible = false;
@@ -96,6 +136,13 @@ namespace EkranKurtar
             // Acil durum: EkranKurtar.exe --reset
             if (reset)
             {
+                // Çalışan Ekran Kurtar varsa önce onu düzgünce kapat (aynayı, fare kilidini bırakır)
+                TrayApp.Signal(TrayApp.ExitEvent);
+                using (var m = new Mutex(false, TrayApp.MutexName))
+                {
+                    try { if (m.WaitOne(10000)) m.ReleaseMutex(); }
+                    catch (AbandonedMutexException) { try { m.ReleaseMutex(); } catch { } }
+                }
                 DisplayLayout.RestoreBackup();
                 Vdd.RemoveAll();
                 string log = DisplayConfig.ResetAll();
@@ -107,11 +154,13 @@ namespace EkranKurtar
             }
 
             bool created;
-            using (var mtx = new Mutex(true, "EkranKurtar_SingleInstance", out created))
+            using (var mtx = new Mutex(true, TrayApp.MutexName, out created))
             {
                 if (!created)
                 {
-                    MessageBox.Show(L.T("Ekran Kurtar zaten çalışıyor (sağ alttaki simge).", "Ekran Kurtar is already running (tray icon)."), "Ekran Kurtar");
+                    // Zaten çalışıyor: çalışan kopyanın penceresini görünür yere getir
+                    if (!TrayApp.Signal(TrayApp.ShowEvent))
+                        MessageBox.Show(L.T("Ekran Kurtar zaten çalışıyor (sağ alttaki simge).", "Ekran Kurtar is already running (tray icon)."), "Ekran Kurtar");
                     return;
                 }
                 Application.Run(new TrayApp(tray));
