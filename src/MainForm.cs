@@ -29,26 +29,49 @@ namespace BrokenScreenResizer
         Seg segLang, segMonitor, segEdge;
         MonitorPreview preview;
         FlatSlider slider;
-        FlatButton btnMinus, btnPlus, btnApply, btnRevert, btnReset;
+        FlatButton btnMinus, btnPlus, btnApply, btnRevert, btnReset, btnUninstall;
         Label lblValue, lblHint;
         Toggle tPreview, tLock, tFix, tStartup;
-        ModeCard cardDriver, cardSoft, cardVirtual;
+        ModeCard cardSoft, cardVirtual;
         StatusBox status;
         Explainer explainer;
+
+        // Duyarlı yerleşim: içerik kaydırılabilir bir sayfada durur; pencere küçülünce
+        // "Nasıl çalışır" paneli gizlenir, öğeler alt alta dizilir, gerekirse kaydırma çubuğu çıkar.
+        readonly BufferedPanel body = new BufferedPanel(), page = new BufferedPanel();
+        bool inLayout, autoFit = true, twoColumns = true;
+
+        // Ekrandaki kırmızı önizleme en fazla ~30 kez/sn güncellenir (sürükleme akıcı kalsın)
+        readonly Timer overlayTimer = new Timer();
+        bool overlayDirty;
 
         public MainForm(Settings cfg)
         {
             this.cfg = cfg;
             Text = "Broken Screen Resizer";
             Icon = Theme.AppIcon(32);
-            FormBorderStyle = FormBorderStyle.FixedSingle;
-            MaximizeBox = false;
+            FormBorderStyle = FormBorderStyle.Sizable;
+            MaximizeBox = true;
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Theme.Bg;
             ForeColor = Theme.Text;
             using (var g = CreateGraphics()) Theme.S = g.DpiX / 96f;
+
+            body.Dock = DockStyle.Fill;
+            body.AutoScroll = true;
+            body.BackColor = Theme.Bg;
+            page.BackColor = Theme.Bg;
+            body.Controls.Add(page);
+            Controls.Add(body);
+            body.Resize += delegate { DoLayout(); };
+            ResizeBegin += delegate { autoFit = false; };   // kullanıcı boyutlandırınca pencereye dokunma
+
+            overlayTimer.Interval = 33;
+            overlayTimer.Tick += delegate { if (overlayDirty) ApplyOverlay(); else overlayTimer.Stop(); };
+
             MigrateStartup();
             BuildUi();
+            InitialSize();
             RefreshMonitors();
             SystemEvents.DisplaySettingsChanged += OnDisplayChanged;
         }
@@ -61,23 +84,50 @@ namespace BrokenScreenResizer
 
         static int P(float v) { return Theme.P(v); }
 
+        // Pencere ilk açılışta bulunduğu ekrana sığacak boyutta açılır
+        void InitialSize()
+        {
+            var wa = Screen.FromPoint(Cursor.Position).WorkingArea;
+            var frame = SizeFromClientSize(Size.Empty);
+            MinimumSize = SizeFromClientSize(new Size(P(360), P(320)));
+            int cw = Math.Min(P(1018), wa.Width - frame.Width);
+            int ch = Math.Min(P(900), wa.Height - frame.Height);
+            ClientSize = new Size(Math.Max(P(360), cw), Math.Max(P(320), ch));
+        }
+
+        static string Upper(string s)
+        {
+            return s.ToUpper(L.Lang == "tr" ? new System.Globalization.CultureInfo("tr-TR") : System.Globalization.CultureInfo.CurrentCulture);
+        }
+
+        static string EdgeName(Edge e)
+        {
+            switch (e)
+            {
+                case Edge.Left: return L.T("Sol", "Left");
+                case Edge.Right: return L.T("Sağ", "Right");
+                case Edge.Top: return L.T("Üst", "Top");
+                default: return L.T("Alt", "Bottom");
+            }
+        }
+
         // ------------------------------------------------------------------ Arayüz kurulumu
         Label Section(string text)
         {
             var l = new Label();
-            l.Text = text.ToUpper(L.Lang == "tr" ? new System.Globalization.CultureInfo("tr-TR") : System.Globalization.CultureInfo.CurrentCulture);
+            l.Text = Upper(text);
             l.ForeColor = Theme.Sub;
             l.BackColor = Theme.Bg;
             l.Font = new Font(Font.FontFamily, 8f, FontStyle.Bold);
             l.AutoSize = true;
-            Controls.Add(l);
+            page.Controls.Add(l);
             return l;
         }
 
         T Add<T>(T c) where T : Control
         {
             c.Font = Font;
-            Controls.Add(c);
+            page.Controls.Add(c);
             return c;
         }
 
@@ -90,21 +140,20 @@ namespace BrokenScreenResizer
             logo.SizeMode = PictureBoxSizeMode.Zoom;
             logo.BackColor = Theme.Bg;
             logo.Image = Theme.Logo();
-            Controls.Add(logo);
+            page.Controls.Add(logo);
 
             lblTitle = new Label();
             lblTitle.Text = "Broken Screen Resizer";
             lblTitle.Font = new Font(Font.FontFamily, 15f, FontStyle.Bold);
             lblTitle.ForeColor = Theme.Text;
             lblTitle.AutoSize = true;
-            Controls.Add(lblTitle);
+            page.Controls.Add(lblTitle);
 
             lblSub = new Label();
             lblSub.Text = L.T("Monitörün bozuk kısmını Windows'tan gizle", "Hide the broken part of your monitor from Windows");
             lblSub.ForeColor = Theme.Sub;
             lblSub.AutoSize = true;
-            lblSub.MaximumSize = new Size(P(296), 0);
-            Controls.Add(lblSub);
+            page.Controls.Add(lblSub);
 
             segLang = Add(new Seg());
             segLang.Items = new[] { "TR", "EN", "中文", "RU" };
@@ -135,8 +184,9 @@ namespace BrokenScreenResizer
             lblHint.ForeColor = Theme.Sub;
             lblHint.Font = new Font(Font.FontFamily, 8.5f);
             lblHint.AutoSize = true;
-            Controls.Add(lblHint);
+            page.Controls.Add(lblHint);
 
+            // Dört kenarın değeri burada hep görünür; birine tıklayınca aşağıdaki ince ayar o kenarı düzenler
             secEdge = Section(L.T("Bozuk kenarlar", "Broken edges"));
             segEdge = Add(new Seg());
             UpdateEdgeItems();
@@ -156,7 +206,7 @@ namespace BrokenScreenResizer
             lblValue.TextAlign = ContentAlignment.MiddleCenter;
             lblValue.ForeColor = Theme.Text;
             lblValue.Font = new Font(Font.FontFamily, 10.5f, FontStyle.Bold);
-            Controls.Add(lblValue);
+            page.Controls.Add(lblValue);
 
             slider = Add(new FlatSlider());
             slider.ValueChanged += delegate (int v) { SetCut(v, slider); };
@@ -166,13 +216,6 @@ namespace BrokenScreenResizer
             tPreview.Changed += delegate { UpdatePreview(); };
 
             secMethod = Section(L.T("Yöntem", "Method"));
-            cardDriver = Add(new ModeCard());
-            cardDriver.Title = L.T("Sürücü modu", "Driver mode");
-            cardDriver.Badge = L.T("Deneysel", "Experimental");
-            cardDriver.BadgeColor = Theme.Warn;
-            cardDriver.Desc = L.T("Windows monitörü daha küçük sanar. Bazı ekran kartı sürücüleri (ör. NVIDIA) desteklemez.",
-                                  "Windows sees a smaller monitor. Some GPU drivers (e.g. NVIDIA) don't support it.");
-            cardDriver.Picked += delegate { cfg.Mode = Mode.Driver; cfg.Save(); UpdateState(); };
             cardSoft = Add(new ModeCard());
             cardSoft.Title = L.T("Yazılım modu", "Software mode");
             cardSoft.Badge = L.T("Önerilen", "Recommended");
@@ -210,14 +253,17 @@ namespace BrokenScreenResizer
             btnReset.Font = new Font(Font.FontFamily, 8.5f);
             btnReset.Click += delegate { EmergencyReset(); };
 
+            btnUninstall = Add(new FlatButton(L.T("Programı kaldır…", "Uninstall…"), BtnKind.Ghost));
+            btnUninstall.Font = new Font(Font.FontFamily, 8.5f);
+            btnUninstall.Click += delegate { Uninstaller.Launch(); };
+
             explainer = Add(new Explainer());
             Explain(preview, 0); Explain(lblHint, 0); Explain(slider, 0); Explain(segEdge, 0); Explain(btnMinus, 0); Explain(btnPlus, 0);
             Explain(tPreview, 0); Explain(tLock, 0);
-            Explain(cardDriver, 1);
             Explain(segMonitor, 2);
             Explain(cardSoft, 3); Explain(tFix, 3); Explain(cardVirtual, 1);
             Explain(btnApply, 4); Explain(btnRevert, 4); Explain(btnReset, 4);
-            explainer.Running = Visible;
+            explainer.Running = Visible && twoColumns;
 
             ResumeLayout(false);
         }
@@ -229,44 +275,119 @@ namespace BrokenScreenResizer
             c.MouseLeave += delegate { explainer.Unpin(); };
         }
 
+        // Pencere boyutuna göre yerleşim. Kullanıcı boyutlandırmadıysa pencere içeriğe (ekrana sığdığı kadar) uyar.
         void DoLayout()
         {
-            int W = P(620), x0 = P(26), w = W - x0 * 2, y = P(22);
+            if (inLayout || slider == null) return;
+            inLayout = true;
+            try
+            {
+                Relayout();
+                if (autoFit && WindowState == FormWindowState.Normal)
+                {
+                    var wa = Screen.FromRectangle(Bounds).WorkingArea;
+                    int frameH = Height - ClientSize.Height;
+                    int want = Math.Max(P(320), Math.Min(page.Height, wa.Height - frameH));
+                    if (want != ClientSize.Height)
+                    {
+                        ClientSize = new Size(ClientSize.Width, want);
+                        if (Bottom > wa.Bottom) Top = Math.Max(wa.Top, wa.Bottom - Height);
+                        Relayout();
+                    }
+                }
+            }
+            finally { inLayout = false; }
+        }
 
+        // Kaydırma çubuğu çıkınca/kaybolunca genişlik değişir; yerleşim oturana kadar tekrarlanır
+        void Relayout()
+        {
+            // Dikey kaydırma çubuğu gerekecekse genişlik baştan ona göre hesaplanır (gereksiz yatay çubuk çıkmasın)
+            int full = body.Width, bar = SystemInformation.VerticalScrollBarWidth;
+            int cw = Math.Max(P(340), full);
+            int h = LayoutAt(cw);
+            if (h > body.Height)
+            {
+                cw = Math.Max(P(340), full - bar);
+                h = LayoutAt(cw);
+            }
+            page.Size = new Size(cw, h);
+        }
+
+        // Verilen genişliğe göre öğeleri yerleştirir; içerik yüksekliğini döndürür
+        int LayoutAt(int CW)
+        {
+            int ew = P(380);
+            twoColumns = CW >= P(980);
+            int leftW = twoColumns ? Math.Min(CW - ew - P(18), P(760)) : CW;
+            int x0 = leftW >= P(520) ? P(26) : P(14);
+            int w = leftW - x0 * 2;
+            int y = P(22);
+
+            // başlık; dar pencerede dil seçici alt satıra iner
+            bool langInline = w >= P(500);
+            int textW = Math.Max(P(100), w - P(58) - (langInline ? P(206) : 0));
             logo.SetBounds(x0, y, P(44), P(44));
+            lblTitle.MaximumSize = new Size(textW, 0);
             lblTitle.Location = new Point(x0 + P(56), y - P(3));
-            lblSub.Location = new Point(x0 + P(58), y + P(26));
-            segLang.SetBounds(x0 + w - P(196), y + P(7), P(196), P(30));
-            y = Math.Max(y + P(68), lblSub.Bottom + P(20));
+            int titleH = lblTitle.GetPreferredSize(new Size(textW, 0)).Height;
+            lblSub.MaximumSize = new Size(textW, 0);
+            lblSub.Location = new Point(x0 + P(58), y - P(3) + titleH);
+            int subH = lblSub.GetPreferredSize(new Size(textW, 0)).Height;
+            y = Math.Max(y + P(68), lblSub.Top + subH + P(20));
+            if (langInline) segLang.SetBounds(x0 + w - P(196), P(29), P(196), P(30));
+            else { segLang.SetBounds(x0, y - P(6), Math.Min(w, P(240)), P(30)); y += P(30) + P(12); }
 
             secMonitor.Location = new Point(x0, y); y += P(22);
             segMonitor.SetBounds(x0, y, w, P(38)); y += P(38) + P(16);
 
-            preview.SetBounds(x0, y, w, P(250)); y += P(250) + P(4);
+            // önizleme genişliğe göre; alçak pencerede daha kısa
+            int ph = Math.Max(P(150), Math.Min(P(250), w * 44 / 100));
+            if (body.ClientSize.Height < P(620)) ph = Math.Min(ph, P(180));
+            preview.SetBounds(x0, y, w, ph); y += ph + P(4);
             lblHint.MaximumSize = new Size(w, 0);
-            lblHint.Location = new Point(x0, y); y += lblHint.PreferredHeight + P(14);
+            lblHint.Location = new Point(x0, y);
+            y += lblHint.GetPreferredSize(new Size(w, 0)).Height + P(14);
 
-            int half = (w - P(16)) / 2;
-            secEdge.Location = new Point(x0, y);
-            secArea.Location = new Point(x0 + half + P(16), y);
-            y += P(22);
-            segEdge.SetBounds(x0, y, half, P(38));
-            int vx = x0 + half + P(16);
-            btnMinus.SetBounds(vx, y, P(38), P(38));
-            btnPlus.SetBounds(vx + half - P(38), y, P(38), P(38));
-            lblValue.SetBounds(vx + P(42), y, half - P(84), P(38));
-            y += P(38) + P(12);
+            secEdge.Location = new Point(x0, y); y += P(22);
+            segEdge.SetBounds(x0, y, w, P(38)); y += P(38) + P(14);
 
-            slider.SetBounds(x0 - P(4), y, w + P(8), P(30)); y += P(30) + P(8);
+            // seçili kenarın ince ayarı: − değer + ve kaydırıcı (genişse aynı satırda)
+            secArea.Location = new Point(x0, y); y += P(22);
+            int vw = P(170);
+            btnMinus.SetBounds(x0, y, P(38), P(38));
+            lblValue.SetBounds(x0 + P(42), y, vw, P(38));
+            btnPlus.SetBounds(x0 + P(46) + vw, y, P(38), P(38));
+            if (w >= P(460))
+            {
+                int sx = x0 + P(96) + vw;
+                slider.SetBounds(sx, y + P(4), x0 + w - sx + P(4), P(30));
+                y += P(38) + P(10);
+            }
+            else
+            {
+                y += P(38) + P(8);
+                slider.SetBounds(x0 - P(4), y, w + P(8), P(30)); y += P(30) + P(8);
+            }
             tPreview.SetBounds(x0, y, w, P(26)); y += P(26) + P(20);
 
+            // yöntem kartları: yan yana ya da alt alta
             secMethod.Location = new Point(x0, y); y += P(22);
-            int gap = P(10), cw = (w - gap * 2) / 3;
-            int ch = Math.Max(P(118), Math.Max(cardVirtual.Measure(cw), Math.Max(cardDriver.Measure(cw), cardSoft.Measure(cw))));
-            cardSoft.SetBounds(x0, y, cw, ch);
-            cardDriver.SetBounds(x0 + cw + gap, y, cw, ch);
-            cardVirtual.SetBounds(x0 + (cw + gap) * 2, y, w - (cw + gap) * 2, ch);
-            y += ch + P(12);
+            int gap = P(10);
+            if (w >= P(420))
+            {
+                int cw = (w - gap) / 2;
+                int ch = Math.Max(P(110), Math.Max(cardSoft.Measure(cw), cardVirtual.Measure(w - cw - gap)));
+                cardSoft.SetBounds(x0, y, cw, ch);
+                cardVirtual.SetBounds(x0 + cw + gap, y, w - cw - gap, ch);
+                y += ch + P(12);
+            }
+            else
+            {
+                int h1 = Math.Max(P(96), cardSoft.Measure(w)), h2 = Math.Max(P(96), cardVirtual.Measure(w));
+                cardSoft.SetBounds(x0, y, w, h1); y += h1 + gap;
+                cardVirtual.SetBounds(x0, y, w, h2); y += h2 + P(12);
+            }
 
             bool soft = cfg.Mode == Mode.Software;
             tLock.Visible = soft;
@@ -281,27 +402,45 @@ namespace BrokenScreenResizer
             int sh = status.Measure(w);
             status.SetBounds(x0, y, w, sh); y += sh + P(18);
 
-            btnApply.SetBounds(x0 + w - P(150), y, P(150), P(44));
-            btnRevert.SetBounds(x0 + w - P(150) - P(12) - P(120), y, P(120), P(44));
-            tStartup.SetBounds(x0, y + P(9), w - P(300), P(26));
-            y += P(44) + P(14);
+            if (w >= P(470))
+            {
+                btnApply.SetBounds(x0 + w - P(150), y, P(150), P(44));
+                btnRevert.SetBounds(x0 + w - P(150) - P(12) - P(120), y, P(120), P(44));
+                tStartup.SetBounds(x0, y + P(9), w - P(300), P(26));
+                y += P(44) + P(14);
+            }
+            else
+            {
+                tStartup.SetBounds(x0, y, w, P(26)); y += P(26) + P(12);
+                int bw = (w - P(12)) / 2;
+                btnRevert.SetBounds(x0, y, bw, P(44));
+                btnApply.SetBounds(x0 + bw + P(12), y, w - bw - P(12), P(44));
+                y += P(44) + P(14);
+            }
 
+            // acil durum (sol) ve kaldırma (sağ); sığmazsa alt alta
             var rs = TextRenderer.MeasureText(btnReset.Text, btnReset.Font);
-            btnReset.SetBounds(x0 - P(8), y, rs.Width + P(20), P(30));
+            var us = TextRenderer.MeasureText(btnUninstall.Text, btnUninstall.Font);
+            int rw = Math.Min(w + P(16), rs.Width + P(20)), uw = Math.Min(w + P(16), us.Width + P(20));
+            btnReset.SetBounds(x0 - P(8), y, rw, P(30));
+            if (rw + uw + P(12) <= w + P(16)) btnUninstall.SetBounds(x0 + w + P(8) - uw, y, uw, P(30));
+            else { y += P(30) + P(2); btnUninstall.SetBounds(x0 - P(8), y, uw, P(30)); }
             y += P(30) + P(16);
 
-            int ex = W - P(6), ew = P(380);
-            explainer.SetBounds(ex, P(22), ew, y - P(22) - P(22));
-            ClientSize = new Size(ex + ew + P(24), y);
+            explainer.Visible = twoColumns;
+            explainer.Running = Visible && twoColumns;
+            if (twoColumns) explainer.SetBounds(leftW - P(6), P(22), ew, y - P(44));
+            return y;
         }
 
         void RebuildUi()
         {
             SuspendLayout();
-            var old = new Control[Controls.Count];
-            Controls.CopyTo(old, 0);
-            Controls.Clear();
+            var old = new Control[page.Controls.Count];
+            page.Controls.CopyTo(old, 0);
+            page.Controls.Clear();
             foreach (var c in old) c.Dispose();
+            slider = null;   // yeni arayüz kurulana kadar yerleşim yapılmasın
             BuildUi();
             ResumeLayout(false);
             RefreshMonitors();
@@ -413,7 +552,8 @@ namespace BrokenScreenResizer
             SyncControls(preview);
         }
 
-        // Kaydırıcı, değer etiketi, kenar seçici ve önizlemeyi ayardaki kesimlere eşitler
+        // Kaydırıcı, değer etiketi, kenar seçici ve önizlemeyi ayardaki kesimlere eşitler.
+        // Önizlemede sürüklerken de her harekette çağrılır; değerler anında çizilir.
         void SyncControls(object from)
         {
             int v = cfg.Cuts[cfg.Focus];
@@ -422,24 +562,50 @@ namespace BrokenScreenResizer
             if (from != preview) preview.Cuts = cfg.Cuts;
             var m = Selected;
             int total = m == null ? 1 : Math.Max(1, Horizontal ? FullW(m) : FullH(m));
-            lblValue.Text = v + " px   ·   %" + (v * 100 / total);
+            lblValue.Text = v + " px  ·  %" + (v * 100 / total);
+            secArea.Text = Upper(L.T("Gizlenecek alan", "Area to hide") + " · " + EdgeName(cfg.Focus) + " (px)");
             UpdateEdgeItems();
+            if (from == preview)
+            {
+                // sürükleme mesajları arasında yeniden çizim beklemesin
+                lblValue.Update(); slider.Update(); segEdge.Update(); secArea.Update();
+            }
             UpdatePreview();
         }
 
-        // Kesim olan kenarlar seçicide nokta ile işaretlenir
+        // Kenar seçicide her kenarın güncel değeri yazar (ör. "Sol 409"); kesim olmayan kenar sadece adıyla
         void UpdateEdgeItems()
         {
-            var names = new[] { L.T("Sol", "Left"), L.T("Sağ", "Right"), L.T("Üst", "Top"), L.T("Alt", "Bottom") };
+            var names = new string[EdgeOrder.Length];
             for (int i = 0; i < names.Length; i++)
-                if (cfg.Cuts[EdgeOrder[i]] > 0) names[i] += " •";
+            {
+                int v = cfg.Cuts[EdgeOrder[i]];
+                names[i] = EdgeName(EdgeOrder[i]) + (v > 0 ? " " + v : "");
+            }
+            var old = segEdge.Items;
+            if (old.Length == names.Length && string.Join("|", old) == string.Join("|", names)) return;
             segEdge.Items = names;
+        }
+
+        bool OverlayWanted(MonitorInfo m)
+        {
+            return Visible && tPreview.Checked && !cfg.Active && !busy && m != null && !m.IsModified;
         }
 
         void UpdatePreview()
         {
+            if (!OverlayWanted(Selected)) { overlayDirty = false; overlay.Hide(); return; }
+            overlayDirty = true;
+            if (overlayTimer.Enabled) return;   // sonraki tikte uygulanır
+            ApplyOverlay();
+            overlayTimer.Start();
+        }
+
+        void ApplyOverlay()
+        {
+            overlayDirty = false;
             var m = Selected;
-            if (!Visible || !tPreview.Checked || cfg.Active || busy || m == null || m.IsModified) { overlay.Hide(); return; }
+            if (!OverlayWanted(m)) { overlay.Hide(); return; }
             var s = Shield.FindScreen(m.GdiName);
             if (s == null) { overlay.Hide(); return; }
             var c = cfg.Cuts.Scale(FullW(m), FullH(m), s.Bounds.Width, s.Bounds.Height);
@@ -457,10 +623,8 @@ namespace BrokenScreenResizer
             btnPlus.Enabled = editable;
             preview.Enabled = editable;
             preview.Applied = cfg.Active || (m != null && m.IsModified);
-            cardDriver.Enabled = editable;
             cardSoft.Enabled = editable;
             cardVirtual.Enabled = editable;
-            cardDriver.Selected = cfg.Mode == Mode.Driver;
             cardSoft.Selected = cfg.Mode == Mode.Software;
             cardVirtual.Selected = cfg.Mode == Mode.Virtual;
             tPreview.Enabled = editable;
@@ -469,9 +633,10 @@ namespace BrokenScreenResizer
 
             if (cfg.Active && cfg.ActiveMode == Mode.Driver)
             {
-                status.Kind = StatusKind.Active;
-                status.Text = L.T("Sürücü modu etkin. Windows bu monitörü küçük ekran olarak görüyor. Program kapansa da ayar kalır.",
-                                  "Driver mode active. Windows sees this monitor as a smaller screen. Stays even if the app is closed.");
+                // v1.5 ve öncesinden kalan sürücü modu ayarı
+                status.Kind = StatusKind.Warn;
+                status.Text = L.T("Eski sürücü modu ayarı hâlâ etkin. Bu sürümde sürücü modu yok; kaldırmak için Geri al'a bas.",
+                                  "An old driver-mode setting is still active. This version has no driver mode; press Revert to remove it.");
             }
             else if (cfg.Active && cfg.ActiveMode == Mode.Virtual)
             {
@@ -524,8 +689,7 @@ namespace BrokenScreenResizer
             Cursor = Cursors.WaitCursor;
             try
             {
-                if (cfg.Mode == Mode.Driver) ApplyDriver(m);
-                else ApplyVirtual(m);
+                ApplyVirtual(m);
             }
             finally
             {
@@ -554,71 +718,7 @@ namespace BrokenScreenResizer
                 return dlg.ShowDialog() == DialogResult.OK;
         }
 
-        // ---------------- 2) Sürücü modu: önce standart yöntem, olmazsa NVIDIA warp
-        void ApplyDriver(MonitorInfo m)
-        {
-            var res = DisplayConfig.TryApply(m.DevicePath, cfg.Cuts, false);
-            string log = res.Log;
-            bool warp = false;
-            uint nid = 0;
-
-            if (!res.Ok && NvApi.DisplayId(m.GdiName, out nid) == NvApi.OK)
-            {
-                log += "\nNVIDIA warp: ";
-                int pr = NvApi.Probe(nid);
-                log += NvApi.Err(pr) + "\n";
-                if (pr == NvApi.OK)
-                {
-                    res = DisplayConfig.TryApply(m.DevicePath, cfg.Cuts, true);
-                    log += res.Log;
-                    if (res.Ok)
-                    {
-                        warp = SetWarp(nid, ref log);
-                        if (!warp) { DisplayConfig.Restore(res.Original); res.Ok = false; }
-                    }
-                }
-            }
-
-            if (!res.Ok)
-            {
-                OfferSoftware(L.T("Ekran kartı sürücün bu yöntemi desteklemiyor. Hiçbir şey değişmedi.",
-                                  "Your GPU driver does not support this method. Nothing was changed."), log);
-                return;
-            }
-
-            if (Confirm(m.GdiName))
-            {
-                int r = DisplayConfig.Keep(res.Applied);
-                if (r == 0)
-                {
-                    cfg.Cuts = res.ActualCuts;
-                    cfg.Active = true;
-                    cfg.ActiveMode = Mode.Driver;
-                    cfg.DriverWarp = warp;
-                    cfg.Save();
-                    return;
-                }
-                MsgDialog.Show(this, L.T("Kaydedilemedi: ", "Could not save: ") + DisplayConfig.Err(r), true);
-            }
-            if (warp) NvApi.ClearWarp(nid);
-            DisplayConfig.Restore(res.Original);
-        }
-
-        bool SetWarp(uint nid, ref string log)
-        {
-            NvApi.ScanoutInfo si;
-            int sr = NvApi.Scanout(nid, out si);
-            if (sr != NvApi.OK) { log += "Scanout: " + NvApi.Err(sr) + "\n"; return false; }
-            var src = si.sourceDesktopRect;
-            var dst = NvApi.Target(cfg.Cuts, src.W, src.H, (int)si.targetDisplayWidth, (int)si.targetDisplayHeight);
-            log += "Warp: " + src.W + "x" + src.H + " -> " + dst.X + "," + dst.Y + " (" + si.targetDisplayWidth + "x" + si.targetDisplayHeight + ")\n";
-            bool sticky;
-            int wr = NvApi.SetWarp(nid, src, dst, out sticky);
-            log += "SetWarp: " + NvApi.Err(wr) + "\n";
-            return wr == NvApi.OK;
-        }
-
-        // ---------------- 3) Sanal monitör modu
+        // ---------------- Sanal monitör modu
         // Gömülü sanal ekran sürücüsünü kullanıcıya sorup kurar.
         // Dönüş: null = kuruldu ve hazır, "" = kullanıcı vazgeçti, diğer = hata mesajı
         string InstallDriver()
@@ -867,19 +967,8 @@ namespace BrokenScreenResizer
                 return;
             }
 
-            bool ok = DisplayConfig.IsApplied(cfg.MonitorPath, cfg.Cuts, cfg.DriverWarp);
-            if (!ok)
-            {
-                var res = DisplayConfig.TryApply(cfg.MonitorPath, cfg.Cuts, cfg.DriverWarp);
-                ok = res.Ok && DisplayConfig.Keep(res.Applied) == 0;
-                if (!ok && res.Original != null && res.Applied != null) DisplayConfig.Restore(res.Original);
-            }
-            if (ok && cfg.DriverWarp)
-            {
-                uint nid; string log = "";
-                ok = NvApi.DisplayId(target.GdiName, out nid) == NvApi.OK && SetWarp(nid, ref log);
-            }
-            if (!ok) Raise(L.T("Ekran ayarı yeniden uygulanamadı. Uygulamayı açıp tekrar dene.", "Could not re-apply. Open the app and try again."));
+            // Eski sürücü modu (v1.5 ve öncesi): ayar Windows'ta kalıcıdır, bu sürüm yeniden uygulamaz.
+            // Etkin bilgisi korunur ki "Geri al" monitörü tam ekrana döndürebilsin.
             RefreshMonitors();
         }
 
@@ -987,7 +1076,7 @@ namespace BrokenScreenResizer
         {
             base.OnVisibleChanged(e);
             if (Visible) RefreshMonitors();
-            if (explainer != null) explainer.Running = Visible;
+            if (explainer != null) explainer.Running = Visible && twoColumns;
             UpdatePreview();
         }
 

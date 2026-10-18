@@ -5,7 +5,7 @@ using System.IO;
 namespace BrokenScreenResizer
 {
     enum Edge { Left = 0, Top = 1, Right = 2, Bottom = 3 }   // değerler AppBar kenar kodlarıyla aynı
-    enum Mode { Driver = 0, Software = 1, Virtual = 2 }
+    enum Mode { Driver = 0, Software = 1, Virtual = 2 }   // Driver: v1.5 ve öncesinden kalan ayarı tanımak için
 
     // Monitörün dört kenarından gizlenen (bozuk) şeritler, piksel cinsinden.
     // Kalan dikdörtgen "sağlam alan"dır; böylece ekranın herhangi bir dikdörtgen bölgesi kullanılabilir.
@@ -151,7 +151,8 @@ namespace BrokenScreenResizer
                         // eski biçim (v1.5 öncesi): tek kenar + miktar
                         case "edge": if (int.TryParse(v, out n) && n >= 0 && n <= 3) edge = n; break;
                         case "cut": if (int.TryParse(v, out n) && n >= 0) cut = n; break;
-                        case "mode": s.Mode = ParseMode(v, Mode.Software); break;
+                        // sürücü modu v1.6'da kaldırıldı: yazılım moduna geçilir
+                        case "mode": s.Mode = ParseMode(v, Mode.Software); if (s.Mode == Mode.Driver) s.Mode = Mode.Software; break;
                         case "active": s.Active = v == "1"; break;
                         case "activeMode": s.ActiveMode = ParseMode(v, Mode.Driver); break;
                         case "driverWarp": s.DriverWarp = v == "1"; break;

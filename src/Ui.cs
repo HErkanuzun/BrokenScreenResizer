@@ -124,6 +124,16 @@ namespace BrokenScreenResizer
     }
 
     // ------------------------------------------------------------------ Ortak taban
+    // Titremeden kaydırılabilen panel (ana pencerenin duyarlı sayfası için)
+    class BufferedPanel : Panel
+    {
+        public BufferedPanel()
+        {
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
+        }
+    }
+
     class Ctl : Control
     {
         protected bool hover, pressed;
@@ -674,6 +684,16 @@ namespace BrokenScreenResizer
             base.OnMouseLeave(e);
             hotL = hotT = hotR = hotB = hotMove = false;
             Invalidate();
+        }
+
+        protected override void OnMouseCaptureChanged(EventArgs e)
+        {
+            base.OnMouseCaptureChanged(e);
+            if (!Capture && (dragL || dragT || dragR || dragB || dragMove))
+            {
+                dragL = dragT = dragR = dragB = dragMove = false;
+                Invalidate();
+            }
         }
 
         protected override void OnPaint(PaintEventArgs e)

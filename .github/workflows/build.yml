@@ -19,14 +19,18 @@ jobs:
         shell: cmd
         run: build.bat ci
 
+      - name: Package ZIP
+        shell: pwsh
+        run: Compress-Archive -Path bin/BrokenScreenResizer.exe,bin/Uninstall.bat -DestinationPath bin/BrokenScreenResizer-v1.6.zip -Force
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: BrokenScreenResizer
-          path: bin/BrokenScreenResizer.exe
+          path: bin/BrokenScreenResizer-v1.6.zip
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: bin/BrokenScreenResizer.exe
+          files: bin/BrokenScreenResizer-v1.6.zip

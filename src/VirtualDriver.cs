@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32.SafeHandles;
@@ -26,6 +27,7 @@ namespace BrokenScreenResizer
         // v1.5 öncesi ("Ekran Kurtar") sürücünün kimliği: kurulumda kaldırılır
         public const string LegacyHardwareId = @"Root\EkranKurtarVDD";
         public const string LegacyCertSubject = "CN=Ekran Kurtar Driver Signing";
+        public const string CertSubject = "CN=Broken Screen Resizer Driver Signing";
         public const string DeviceName = "Broken Screen Resizer Virtual Display";
         static Guid InterfaceGuid = new Guid("69a8bde3-4c78-4ba6-ad55-75a6b2760ca4");
 
@@ -382,6 +384,12 @@ namespace BrokenScreenResizer
 
         static int ForEachDevice(string hardwareId, Action<IntPtr, SP_DEVINFO_DATA> action)
         {
+            return ForEachDevice(id => string.Equals(id, hardwareId, StringComparison.OrdinalIgnoreCase), action);
+        }
+
+        // Donanım kimliklerinden biri koşulu sağlayan tüm aygıtlar (bağlı olmayan "hayalet" aygıtlar dahil)
+        static int ForEachDevice(Func<string, bool> match, Action<IntPtr, SP_DEVINFO_DATA> action)
+        {
             IntPtr set = SetupDiGetClassDevsW(IntPtr.Zero, null, IntPtr.Zero, DIGCF_ALLCLASSES);
             if (set == INVALID) return 0;
             int count = 0;
@@ -392,7 +400,7 @@ namespace BrokenScreenResizer
                 for (int i = 0; SetupDiEnumDeviceInfo(set, i, ref d); i++)
                 {
                     foreach (var id in HardwareIds(set, ref d))
-                        if (string.Equals(id, hardwareId, StringComparison.OrdinalIgnoreCase))
+                        if (match(id))
                         {
                             count++;
                             if (action != null) action(set, d);
@@ -463,6 +471,142 @@ namespace BrokenScreenResizer
                 if (Directory.Exists(oldDir)) try { Directory.Delete(oldDir, true); } catch { }
             }
             catch (Exception ex) { Log("Eski sürücü temizliği: " + ex.Message); }
+        }
+
+        // ------------------------------------------------------------------ Tam kaldırma (yönetici)
+        // Programın (yeni ve eski adıyla) sistemde bıraktığı her şey:
+        //  - sanal ekran kartı aygıtı ve sanal monitörlerin "hayalet" aygıtları
+        //  - Windows sürücü deposundaki sürücü paketleri
+        //  - güvenilen sertifikalar (Kök ve Güvenilen Yayımcılar)
+        //  - Windows'un sanal monitörler için tuttuğu ekran düzeni/ölçek kayıtları
+        //  - ProgramData klasörleri (çıkarılan sürücü dosyaları, kurulum günlüğü)
+        static readonly string[] DriverNames = { "BrokenScreenResizerVDD", "EkranKurtarVDD" };
+        static readonly string[] CertSubjects = { Vdd.CertSubject, Vdd.LegacyCertSubject };
+        const string GraphicsKey = @"SYSTEM\CurrentControlSet\Control\GraphicsDrivers";
+        static readonly string[] GraphicsSubKeys = { "Configuration", "Connectivity", "ScaleFactors", "MonitorDataStore" };
+        // Sanal monitör kimlikleri: EDID üretici kodu BSR (yeni) / EKR (eski) + 4 haneli ürün kodu
+        static readonly Regex MonitorIdRx = new Regex(@"(^|[^A-Z])(BSR|EKR)[0-9A-F]{4}");
+
+        static bool IsOurHardwareId(string id)
+        {
+            return string.Equals(id, Vdd.HardwareId, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(id, Vdd.LegacyHardwareId, StringComparison.OrdinalIgnoreCase) ||
+                   id.StartsWith(@"MONITOR\BSR", StringComparison.OrdinalIgnoreCase) ||
+                   id.StartsWith(@"MONITOR\EKR", StringComparison.OrdinalIgnoreCase);
+        }
+
+        static List<string> OemInfs()
+        {
+            var list = new List<string>();
+            try
+            {
+                string infDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "INF");
+                foreach (var f in Directory.GetFiles(infDir, "oem*.inf"))
+                {
+                    string text;
+                    try { text = File.ReadAllText(f); } catch { continue; }
+                    foreach (var n in DriverNames)
+                        if (text.IndexOf(n, StringComparison.OrdinalIgnoreCase) >= 0) { list.Add(Path.GetFileName(f)); break; }
+                }
+            }
+            catch { }
+            return list;
+        }
+
+        static List<X509Certificate2> MachineCerts(StoreName name, bool write, out X509Store store)
+        {
+            store = new X509Store(name, StoreLocation.LocalMachine);
+            store.Open(write ? OpenFlags.ReadWrite : OpenFlags.ReadOnly);
+            var list = new List<X509Certificate2>();
+            foreach (var s in CertSubjects)
+                foreach (X509Certificate2 c in store.Certificates.Find(X509FindType.FindBySubjectDistinguishedName, s, false)) list.Add(c);
+            return list;
+        }
+
+        static List<string> GraphicsKeys()
+        {
+            var list = new List<string>();
+            foreach (var sub in GraphicsSubKeys)
+                try
+                {
+                    using (var k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(GraphicsKey + "\\" + sub))
+                    {
+                        if (k == null) continue;
+                        foreach (var n in k.GetSubKeyNames())
+                            if (MonitorIdRx.IsMatch(n)) list.Add(sub + "\\" + n);
+                    }
+                }
+                catch { }
+            return list;
+        }
+
+        static string[] DataDirs
+        {
+            get
+            {
+                string pd = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+                return new[] { Path.Combine(pd, Settings.AppName), Path.Combine(pd, Settings.LegacyName) };
+            }
+        }
+
+        // Yönetici izni gerektiren bir kalıntı var mı? (sadece okur, yönetici gerekmez)
+        public static bool NeedsPurge()
+        {
+            try
+            {
+                if (ForEachDevice(IsOurHardwareId, null) > 0) return true;
+                if (OemInfs().Count > 0) return true;
+                foreach (var name in new[] { StoreName.Root, StoreName.TrustedPublisher })
+                {
+                    X509Store st;
+                    var found = MachineCerts(name, false, out st);
+                    st.Close();
+                    if (found.Count > 0) return true;
+                }
+                if (GraphicsKeys().Count > 0) return true;
+                foreach (var d in DataDirs) if (Directory.Exists(d)) return true;
+            }
+            catch { return true; }
+            return false;
+        }
+
+        // "--uninstall-system": yönetici olarak çalışır. Dönüş: 0 = her şey silindi, 1 = bazı öğeler silinemedi
+        public static int Purge()
+        {
+            if (!IsAdmin) return 5;
+            int failed = 0;
+            try { Vdd.RemoveAll(); } catch { }
+
+            // aygıtlar (ekran kartı + hayalet monitörler)
+            ForEachDevice(IsOurHardwareId, (set, d) => { if (!SetupDiCallClassInstaller(DIF_REMOVE, set, ref d)) failed++; });
+
+            // sürücü paketleri
+            foreach (var inf in OemInfs())
+                if (!SetupUninstallOEMInfW(inf, SUOI_FORCEDELETE, IntPtr.Zero)) failed++;
+
+            // sertifikalar
+            foreach (var name in new[] { StoreName.Root, StoreName.TrustedPublisher })
+            {
+                X509Store st = null;
+                try
+                {
+                    foreach (var c in MachineCerts(name, true, out st)) st.Remove(c);
+                }
+                catch { failed++; }
+                finally { if (st != null) st.Close(); }
+            }
+
+            // Windows'un sanal monitörler için sakladığı ekran kayıtları
+            foreach (var key in GraphicsKeys())
+                try { Microsoft.Win32.Registry.LocalMachine.DeleteSubKeyTree(GraphicsKey + "\\" + key, false); }
+                catch { failed++; }
+
+            // çıkarılan sürücü dosyaları ve günlük
+            foreach (var d in DataDirs)
+                if (Directory.Exists(d))
+                    try { Directory.Delete(d, true); } catch { failed++; }
+
+            return failed == 0 ? 0 : 1;
         }
 
         // ------------------------------------------------------------------ Kurulum (yönetici)
