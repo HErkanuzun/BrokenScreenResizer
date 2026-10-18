@@ -74,8 +74,8 @@ namespace EkranKurtar
             {
                 case 0: return L.T("İmleç bir monitörün bittiği yerden diğerinin sağlam kısmına doğrudan geçer. Arada ölü alan yoktur.",
                                    "The cursor goes straight from one monitor's edge to the working part of the next. No dead zone in between.");
-                case 1: return L.T("Büyütülen pencereler, videolar ve oyunlar sadece sağlam kısmı kaplar.",
-                                   "Maximized windows, videos and games only fill the working part.");
+                case 1: return L.T("Büyütülen pencereler, videolar ve kenarlıksız tam ekran oyunlar sadece sağlam kısmı kaplar.",
+                                   "Maximized windows, videos and borderless fullscreen games only fill the working part.");
                 case 2: return L.T("Windows bozuk kısmı yok sayar ve monitörleri yan yana yapıştırır.",
                                    "Windows ignores the broken part and places the monitors edge to edge.");
                 case 3: return L.T("Yazılım modunda bozuk alana taşan pencereler otomatik olarak geri itilir.",
