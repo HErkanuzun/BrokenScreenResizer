@@ -3,3 +3,5 @@ obj/
 *.exe
 *.pdb
 .vs/
+driver/.wdk/
+driver/out/

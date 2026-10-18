@@ -3,19 +3,17 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
-using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
-using System.Xml;
 using Microsoft.Win32;
 
 namespace EkranKurtar
 {
     // ===================================================================================
     // "Sanal monitör modu":
-    //  1) Açık kaynak Virtual Display Driver ile sağlam alan boyutunda sanal bir monitör açılır.
+    //  1) Ekran Kurtar'ın kendi sanal ekran sürücüsüyle (driver\, bkz. VirtualDriver.cs) sağlam alan boyutunda sanal bir monitör açılır.
     //  2) Sanal monitör, fiziksel monitörün yerine konur; fiziksel monitör düzende kenara alınır.
     //  3) Sanal monitörün görüntüsü Windows Büyüteç API'siyle fiziksel monitörün sağlam kısmına 1:1 kopyalanır.
     //  4) Fare fiziksel monitörün (artık sadece ayna olan) alanına giremez.
@@ -85,6 +83,7 @@ namespace EkranKurtar
         [DllImport("winmm.dll")] public static extern uint timeEndPeriod(uint ms);
 
         public const int WS_CHILD = 0x40000000, WS_VISIBLE = 0x10000000, MS_SHOWMAGNIFIEDCURSOR = 0x1;
+
 
         public static DEVMODE NewDevMode()
         {
@@ -225,145 +224,6 @@ namespace EkranKurtar
             int r = Apply(apply);
             if (r == 0) try { File.Delete(BackupPath); } catch { }
             return r;
-        }
-    }
-
-    // ------------------------------------------------------------------ Virtual Display Driver ile iletişim
-    static class Vdd
-    {
-        public const string DownloadUrl = "https://github.com/VirtualDrivers/Virtual-Display-Driver/releases";
-
-        public static string ConfigDir
-        {
-            get
-            {
-                try
-                {
-                    using (var k = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\MikeTheTech\VirtualDisplayDriver"))
-                    {
-                        var v = k == null ? null : k.GetValue("VDDPATH") as string;
-                        if (!string.IsNullOrEmpty(v)) return v;
-                    }
-                }
-                catch { }
-                return @"C:\VirtualDisplayDriver";
-            }
-        }
-
-        public static string ConfigFile { get { return Path.Combine(ConfigDir, "vdd_settings.xml"); } }
-
-        // Sanal monitörün GDI adı (\\.\DISPLAYn). Masaüstüne bağlı olmasa da bulunur.
-        public static string FindGdi()
-        {
-            var dd = new VNative.DISPLAY_DEVICE();
-            dd.cb = Marshal.SizeOf(typeof(VNative.DISPLAY_DEVICE));
-            for (uint i = 0; VNative.EnumDisplayDevices(null, i, ref dd, 0); i++)
-            {
-                string s = (dd.DeviceString ?? "") + " " + (dd.DeviceID ?? "");
-                if (s.IndexOf("Virtual Display", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    s.IndexOf("MttVDD", StringComparison.OrdinalIgnoreCase) >= 0)
-                    return dd.DeviceName;
-                dd.cb = Marshal.SizeOf(typeof(VNative.DISPLAY_DEVICE));
-            }
-            return null;
-        }
-
-        public static bool Installed { get { return FindGdi() != null || File.Exists(ConfigFile); } }
-
-        public static bool HasMode(string gdi, int w, int h)
-        {
-            var dm = VNative.NewDevMode();
-            for (int i = 0; VNative.EnumDisplaySettings(gdi, i, ref dm); i++)
-                if (dm.dmPelsWidth == w && dm.dmPelsHeight == h) return true;
-            return false;
-        }
-
-        // XML'e çözünürlük ekler. Dönüş: 0 eklendi, 1 zaten vardı, 2 yetki yok, 3 dosya yok/bozuk
-        public static int AddResolution(int w, int h)
-        {
-            try
-            {
-                if (!File.Exists(ConfigFile)) return 3;
-                var doc = new XmlDocument();
-                doc.PreserveWhitespace = true;
-                doc.Load(ConfigFile);
-                var res = doc.SelectSingleNode("/vdd_settings/resolutions");
-                if (res == null) return 3;
-                foreach (XmlNode r in res.SelectNodes("resolution"))
-                {
-                    var wn = r.SelectSingleNode("width"); var hn = r.SelectSingleNode("height");
-                    if (wn != null && hn != null && wn.InnerText.Trim() == w.ToString() && hn.InnerText.Trim() == h.ToString()) return 1;
-                }
-                var el = doc.CreateElement("resolution");
-                Child(doc, el, "width", w.ToString());
-                Child(doc, el, "height", h.ToString());
-                Child(doc, el, "refresh_rate", "60");
-                res.AppendChild(doc.CreateWhitespace("    "));
-                res.AppendChild(el);
-                res.AppendChild(doc.CreateWhitespace("\r\n    "));
-                doc.Save(ConfigFile);
-                return 0;
-            }
-            catch (UnauthorizedAccessException) { return 2; }
-            catch (IOException) { return 2; }
-            catch { return 3; }
-        }
-
-        static void Child(XmlDocument d, XmlElement parent, string name, string value)
-        {
-            var c = d.CreateElement(name);
-            c.InnerText = value;
-            parent.AppendChild(c);
-        }
-
-        // Yetki gerekirse kendimizi yönetici olarak çalıştırıp sadece XML'i düzenletiriz
-        public static int AddResolutionElevated(int w, int h)
-        {
-            int r = AddResolution(w, h);
-            if (r != 2) return r;
-            try
-            {
-                var psi = new ProcessStartInfo(Application.ExecutablePath, "--vdd-res " + w + " " + h);
-                psi.Verb = "runas";
-                psi.UseShellExecute = true;
-                using (var p = Process.Start(psi))
-                {
-                    p.WaitForExit(30000);
-                    return p.HasExited ? p.ExitCode : 2;
-                }
-            }
-            catch { return 2; }
-        }
-
-        public static bool SendCommand(string cmd)
-        {
-            try
-            {
-                using (var pipe = new NamedPipeClientStream(".", "MTTVirtualDisplayPipe", PipeDirection.InOut))
-                {
-                    pipe.Connect(2000);
-                    pipe.ReadMode = PipeTransmissionMode.Message;
-                    var bytes = Encoding.Unicode.GetBytes(cmd);
-                    pipe.Write(bytes, 0, bytes.Length);
-                    pipe.Flush();
-                    return true;
-                }
-            }
-            catch { return false; }
-        }
-
-        // Sanal monitörde istenen çözünürlük görünene kadar bekler
-        public static bool WaitForMode(int w, int h, int timeoutMs)
-        {
-            var sw = Stopwatch.StartNew();
-            while (sw.ElapsedMilliseconds < timeoutMs)
-            {
-                var g = FindGdi();
-                if (g != null && HasMode(g, w, h)) return true;
-                Application.DoEvents();
-                Thread.Sleep(250);
-            }
-            return false;
         }
     }
 
