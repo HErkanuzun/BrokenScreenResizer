@@ -73,10 +73,10 @@ Sürümdeki her dosya GitHub Actions üzerinde, bu depodaki kaynak koddan derlen
 
 ```powershell
 # 1) SHA-256 özetini SHA256SUMS.txt ile karşılaştır
-Get-FileHash .\BrokenScreenResizer-1.0-Setup.exe -Algorithm SHA256
+Get-FileHash .\BrokenScreenResizer-1.01-Setup.exe -Algorithm SHA256
 
 # 2) Dosyanın bu depodaki koddan GitHub'da derlendiğini doğrula (GitHub CLI gerekir)
-gh attestation verify .\BrokenScreenResizer-1.0-Setup.exe --repo HErkanuzun/BrokenScreenResizer
+gh attestation verify .\BrokenScreenResizer-1.01-Setup.exe --repo HErkanuzun/BrokenScreenResizer
 ```
 
 **Gereksinimler:** Windows 10 veya 11 (64 bit), .NET Framework 4.x (Windows'ta hazır gelir). Sanal monitör yöntemi için Windows 10 1903 veya üstü.
@@ -178,7 +178,7 @@ build.bat
 Çıktı `bin\BrokenScreenResizer.exe`. `driver\package` klasöründeki hazır, imzalı sürücü paketi exe'nin içine gömülür. Sürüm paketleri (kurulum + taşınabilir ZIP + özetler) için [Inno Setup 6](https://jrsoftware.org/isinfo.php) gerekir:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Version 1.0
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Version 1.01
 ```
 
 <details>
@@ -209,6 +209,7 @@ docs/         Diğer dillerde README ve görseller
 
 Ayrıntılar: [CHANGELOG.md](CHANGELOG.md) · Tüm sürümler: [Releases](https://github.com/HErkanuzun/BrokenScreenResizer/releases)
 
+- **v1.01** — Geniş pencerede ve tam ekranda içerik ortalanır. Ayar uygulanınca değiştirilemeyen kısımlar sisli görünür, kilit etiketi çıkar ve Geri al öne çıkar.
 - **v1.0** — İlk kararlı sürüm: kurulum paketi (varsa günceller, yoksa kurar), sürüm bilinçli açılış, açılışta kırmızı ekran ve varsayılan kesim yok, antivirüs dostu kaldırma, doğrulanabilir sürüm dosyaları.
 - **v0.7** — Sürücü modu kaldırıldı; tam kaldırma; küçük ekranlara uyumlu arayüz.
 - **v0.6** — Yeni ad (Broken Screen Resizer), birden fazla bozuk kenar.

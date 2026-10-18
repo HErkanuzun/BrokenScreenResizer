@@ -5,6 +5,12 @@ Türkçe özet için [README](README.md#sürüm-geçmişi).
 
 > **Version numbers were reorganized with v1.0.** Earlier releases were renumbered into the 0.x range; their previous numbers are shown in brackets.
 
+## [1.01] - 2026-10-18
+
+### Changed
+- **Centered layout:** in wide and fullscreen windows the main column and the "How it works" panel are centered together instead of leaving empty space on the right.
+- **Clear locked state:** while a setting is applied (or the monitor was cropped earlier), the controls that can't be changed until Revert are shown faded ("misty"): the monitor drawing, edge picker, slider, −/+ buttons, preview switch and method cards. The monitor picker is faded too while a setting is active. The monitor drawing shows a "Locked · press Revert to change" label, the hint below it explains what to do, and Revert becomes the highlighted button.
+
 ## [1.0] - 2026-10-18
 
 First stable release.
@@ -81,6 +87,7 @@ First stable release.
 
 First release, named *Ekran Kurtar*: driver mode and software mode, with a 15-second confirmation for every change.
 
+[1.01]: https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v1.01
 [1.0]: https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v1.0
 [0.7]: https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v0.7
 [0.6]: https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v0.6

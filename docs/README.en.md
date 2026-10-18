@@ -73,10 +73,10 @@ Every release file is built by GitHub Actions from the source code in this repos
 
 ```powershell
 # 1) Compare the SHA-256 checksum with SHA256SUMS.txt
-Get-FileHash .\BrokenScreenResizer-1.0-Setup.exe -Algorithm SHA256
+Get-FileHash .\BrokenScreenResizer-1.01-Setup.exe -Algorithm SHA256
 
 # 2) Verify that GitHub built the file from this repository (requires the GitHub CLI)
-gh attestation verify .\BrokenScreenResizer-1.0-Setup.exe --repo HErkanuzun/BrokenScreenResizer
+gh attestation verify .\BrokenScreenResizer-1.01-Setup.exe --repo HErkanuzun/BrokenScreenResizer
 ```
 
 **Requirements:** Windows 10 or 11 (64-bit) and .NET Framework 4.x (included with Windows). The virtual monitor method needs Windows 10 1903 or later.
@@ -178,7 +178,7 @@ build.bat
 The output is `bin\BrokenScreenResizer.exe`. The prebuilt, signed driver package in `driver\package` is embedded in the exe. Release packages (installer + portable ZIP + checksums) need [Inno Setup 6](https://jrsoftware.org/isinfo.php):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Version 1.0
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Version 1.01
 ```
 
 <details>
@@ -209,6 +209,7 @@ docs/         READMEs in other languages and images
 
 Details: [CHANGELOG.md](../CHANGELOG.md) · All releases: [Releases](https://github.com/HErkanuzun/BrokenScreenResizer/releases)
 
+- **v1.01** — Content is centered in wide and fullscreen windows. While a setting is applied, the parts that can't be changed are faded and marked as locked, and Revert is highlighted.
 - **v1.0** — First stable release: installer (updates or installs), version-aware startup, no red screen and no default cut at startup, antivirus-friendly uninstall, verifiable release files.
 - **v0.7** — Driver mode removed; complete uninstall; UI that fits small screens.
 - **v0.6** — New name (Broken Screen Resizer), multiple broken edges.
