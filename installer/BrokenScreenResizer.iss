@@ -1,5 +1,5 @@
 ; Broken Screen Resizer - kurulum paketi (Inno Setup 6)
-; Derleme: ISCC.exe /DAppVersion=1.5 installer\BrokenScreenResizer.iss   (önce build.bat)
+; Derleme: ISCC.exe /DAppVersion=1.6 installer\BrokenScreenResizer.iss   (önce build.bat)
 ;
 ; - Yönetici izni istemez; kullanıcının kendi Programlar klasörüne kurar (%LocalAppData%\Programs).
 ; - Program zaten kuruluysa aynı yere üzerine kurar (güncelleme); çalışan eski sürüm önce düzgünce kapatılır.
@@ -7,7 +7,7 @@
 ;   yaptığı her değişiklik de geri alınır (BrokenScreenResizer.exe --uninstall --silent).
 
 #ifndef AppVersion
-  #define AppVersion "1.5"
+  #define AppVersion "1.6"
 #endif
 #define AppName "Broken Screen Resizer"
 #define AppExe "BrokenScreenResizer.exe"

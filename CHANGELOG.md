@@ -5,6 +5,21 @@ Türkçe özet için [README](README.md#sürüm-geçmişi).
 
 > **Version numbers were reorganized with v1.0.** Earlier releases were renumbered into the 0.x range; their previous numbers are shown in brackets.
 
+## [1.6] - 2026-10-18 *(preview)*
+
+Pre-release from the `develop` branch. The stable release is still [1.01](#101---2026-10-18).
+
+### Added
+- **Windows tweaks** (new tab): dock the taskbar to a different edge on each monitor (bottom, top, left, right, or no taskbar).
+  - A drawing of the monitors: click an edge to move that monitor's taskbar there, or use the side buttons for the selected monitor.
+  - The main monitor uses the Windows taskbar, moved with Windows 11's `TaskbarLocation` setting. If that Windows build doesn't support it yet, the app says so and leaves the main taskbar where it was.
+  - Monitors on a different edge get the app's own taskbar: Start button, that monitor's windows with icons (click to activate or minimize, right-click menu), flashing alerts, clock and date. It reserves screen space as an AppBar and hides during full-screen apps. Windows' secondary taskbars are turned off while it runs.
+  - Icon alignment (center or left) and window names on the app's taskbars.
+  - The original taskbar settings are saved and restored by Revert, emergency reset (`--reset`) and uninstall. When the app closes, the Windows taskbars come back; at startup the layout is applied again.
+
+### Changed
+- The tabs are now "Broken screen", "Screen Multiplier" and "Windows tweaks".
+
 ## [1.5] - 2026-10-18 *(preview)*
 
 Pre-release from the `develop` branch. The stable release is still [1.01](#101---2026-10-18).

@@ -169,6 +169,8 @@ namespace BrokenScreenResizer
                 string log = DisplayConfig.ResetAll();
                 var s = Settings.Load();
                 s.Active = false;
+                TaskbarTweaks.Restore(s);   // görev çubuğunu programdan önceki haline döndür
+                s.TaskbarActive = false;
                 s.Save();
                 MessageBox.Show(log, "Broken Screen Resizer");
                 return;

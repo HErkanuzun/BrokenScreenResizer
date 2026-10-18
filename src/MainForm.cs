@@ -48,6 +48,18 @@ namespace BrokenScreenResizer
         double splitPpi;
         bool SplitTab { get { return cfg.Tab == 1; } }
 
+        // Windows düzenlemeleri (v1.6)
+        TaskbarCanvas tbCanvas;
+        Seg segSide, segAlign;
+        Label secTaskbar, secSide, secAlign;
+        Toggle tLabels;
+        InfoCard tbInfo;
+        TaskbarManager taskbars;
+        List<TbMonitor> tbMons = new List<TbMonitor>();
+        int[] sideItems = new int[0];
+        string tbWarn;
+        bool TaskbarTab { get { return cfg.Tab == 2; } }
+
         // Duyarlı yerleşim: içerik kaydırılabilir bir sayfada durur; pencere küçülünce
         // "Nasıl çalışır" paneli gizlenir, öğeler alt alta dizilir, gerekirse kaydırma çubuğu çıkar.
         readonly BufferedPanel body = new BufferedPanel(), page = new BufferedPanel();
@@ -206,7 +218,7 @@ namespace BrokenScreenResizer
 
             // sekmeler: bozuk ekran / Ekran Çoğaltıcı
             segTab = Add(new Seg());
-            segTab.Items = new[] { L.T("Bozuk ekran", "Broken screen"), L.T("Ekran Çoğaltıcı  ·  önizleme", "Screen Multiplier  ·  preview") };
+            segTab.Items = new[] { L.T("Bozuk ekran", "Broken screen"), L.T("Ekran Çoğaltıcı", "Screen Multiplier"), L.T("Windows düzenlemeleri", "Windows tweaks") };
             segTab.Selected = cfg.Tab;
             segTab.Changed += delegate (int i)
             {
@@ -215,7 +227,7 @@ namespace BrokenScreenResizer
                 editing = false;
                 overlay.Hide();
                 RefreshMonitors();
-                if (explainer != null) explainer.Running = Visible && twoColumns && !SplitTab;
+                if (explainer != null) explainer.Running = Visible && twoColumns && cfg.Tab == 0;
             };
 
             secMonitor = Section(L.T("Monitör", "Monitor"));
@@ -309,6 +321,7 @@ namespace BrokenScreenResizer
             btnUninstall.Click += delegate { Uninstaller.Launch(); };
 
             BuildSplitUi();
+            BuildTaskbarUi();
 
             explainer = Add(new Explainer());
             Explain(preview, 0); Explain(lblHint, 0); Explain(slider, 0); Explain(segEdge, 0); Explain(btnMinus, 0); Explain(btnPlus, 0);
@@ -316,7 +329,7 @@ namespace BrokenScreenResizer
             Explain(segMonitor, 2);
             Explain(cardSoft, 3); Explain(tFix, 3); Explain(cardVirtual, 1);
             Explain(btnApply, 4); Explain(btnRevert, 4); Explain(btnReset, 4);
-            explainer.Running = Visible && twoColumns && !SplitTab;
+            explainer.Running = Visible && twoColumns && cfg.Tab == 0;
 
             ResumeLayout(false);
         }
@@ -381,6 +394,52 @@ namespace BrokenScreenResizer
                 cfg.Save();
                 UpdateSplit(false);
             };
+        }
+
+        // Windows düzenlemeleri sekmesinin öğeleri
+        void BuildTaskbarUi()
+        {
+            secTaskbar = Section(L.T("Görev çubuğu konumu", "Taskbar position"));
+            tbCanvas = Add(new TaskbarCanvas());
+            tbCanvas.PrimaryWord = L.T("Ana", "Main");
+            tbCanvas.NoneWord = L.T("Çubuk yok", "No taskbar");
+            tbCanvas.WindowsLegend = L.T("Windows'un görev çubuğu", "Windows taskbar");
+            tbCanvas.AppLegend = L.T("Programın görev çubuğu", "The app's taskbar");
+            tbCanvas.ClickHint = L.T("Bir kenara tıkla: çubuk oraya geçer", "Click an edge to move the taskbar there");
+            tbCanvas.SelectionChanged += delegate { SyncTaskbar(); };
+            tbCanvas.SideClicked += delegate (int i, int side) { SetSide(i, side); };
+
+            secSide = Section("");
+            segSide = Add(new Seg());
+            segSide.Changed += delegate (int i) { if (i >= 0 && i < sideItems.Length) SetSide(tbCanvas.Selected, sideItems[i]); };
+
+            secAlign = Section(L.T("Simge hizası", "Icon alignment"));
+            segAlign = Add(new Seg());
+            segAlign.Items = new[] { L.T("Ortada", "Center"), L.T("Solda / üstte", "Left / top") };
+            segAlign.Changed += delegate (int i)
+            {
+                cfg.TaskbarAlign = i == 0 ? 1 : 0;
+                cfg.Save();
+                UpdateState();
+            };
+
+            tLabels = Add(new Toggle(L.T("Programın çubuğunda pencere adlarını göster", "Show window names on the app's taskbars")));
+            tLabels.Checked = cfg.TaskbarLabels;
+            tLabels.Changed += delegate (bool v) { cfg.TaskbarLabels = v; cfg.Save(); UpdateState(); };
+
+            tbInfo = Add(new InfoCard());
+            tbInfo.Title = L.T("Nasıl çalışır?", "How it works");
+            tbInfo.Lines = new[] {
+                L.T("Windows 11'in kendi görev çubuğu tek bir konum alır ve bu konum tüm monitörlere uygulanır; monitör başına ayrı kenar seçilemez.",
+                    "Windows 11's own taskbar has a single position that applies to every monitor; it can't use a different edge per monitor."),
+                L.T("Ana monitörde her zaman Windows'un çubuğu kalır (Başlat, sistem tepsisi, saat). Kenarı Windows'un \"Görev çubuğu konumu\" ayarıyla değiştirilir.",
+                    "The main monitor always keeps the Windows taskbar (Start, system tray, clock). Its edge is changed with Windows' \"Taskbar position\" setting."),
+                L.T("Diğer monitörler ana monitörle aynı kenardaysa hepsinde Windows'un çubuğu kalır.",
+                    "If the other monitors use the same edge as the main one, they all keep the Windows taskbar."),
+                L.T("Farklı kenar seçilen monitörlere program kendi görev çubuğunu çizer: Başlat, o monitördeki pencereler (sağ tık: menü) ve saat. Windows'un çubuğu gibi yer ayırır.",
+                    "On monitors with a different edge, the app draws its own taskbar: Start, that monitor's windows (right-click for a menu) and the clock. It reserves space like the Windows taskbar."),
+                L.T("Program kapanınca diğer monitörlerde Windows'un çubuğu geri gelir. Geri al her şeyi programdan önceki haline döndürür.",
+                    "When the app closes, the Windows taskbar comes back on the other monitors. Revert restores everything to how it was before the app.") };
         }
 
         static string[] TierNames()
@@ -463,16 +522,23 @@ namespace BrokenScreenResizer
 
             segTab.SetBounds(x0, y - P(4), w, P(40)); y += P(40) + P(16);
 
-            secMonitor.Location = new Point(x0, y); y += P(22);
-            segMonitor.SetBounds(x0, y, w, P(38)); y += P(38) + P(16);
+            bool split = SplitTab, tb = TaskbarTab;
+            secMonitor.Visible = segMonitor.Visible = !tb;
+            if (!tb)
+            {
+                secMonitor.Location = new Point(x0, y); y += P(22);
+                segMonitor.SetBounds(x0, y, w, P(38)); y += P(38) + P(16);
+            }
 
-            bool split = SplitTab;
             foreach (Control c in new Control[] { preview, lblHint, secEdge, segEdge, secArea, btnMinus, btnPlus, lblValue, slider, tPreview,
                                                   secMethod, cardSoft, cardVirtual })
-                c.Visible = !split;
+                c.Visible = !split && !tb;
             foreach (Control c in new Control[] { canvas, btnAdd, btnRemove, lblLimit, secDist, stats, secTemplates, picker, advice })
                 c.Visible = split;
+            foreach (Control c in new Control[] { secTaskbar, tbCanvas, secSide, segSide, secAlign, segAlign, tLabels, tbInfo })
+                c.Visible = tb;
             if (split) y = LayoutSplit(x0, w, y, ox + leftW - P(6), ew);
+            else if (tb) y = LayoutTaskbar(x0, w, y, ox + leftW - P(6), ew);
             else
             {
 
@@ -526,7 +592,7 @@ namespace BrokenScreenResizer
 
             }
 
-            bool soft = cfg.Mode == Mode.Software && !split;
+            bool soft = cfg.Mode == Mode.Software && cfg.Tab == 0;
             tLock.Visible = soft;
             tFix.Visible = soft;
             if (soft)
@@ -564,10 +630,12 @@ namespace BrokenScreenResizer
             else { y += P(30) + P(2); btnUninstall.SetBounds(x0 - P(8), y, uw, P(30)); }
             y += P(30) + P(16);
 
-            explainer.Visible = twoColumns && !split;
-            explainer.Running = Visible && twoColumns && !split;
-            if (twoColumns && !split) explainer.SetBounds(ox + leftW - P(6), P(22), ew, y - P(44));
+            bool tab0 = cfg.Tab == 0;
+            explainer.Visible = twoColumns && tab0;
+            explainer.Running = Visible && twoColumns && tab0;
+            if (twoColumns && tab0) explainer.SetBounds(ox + leftW - P(6), P(22), ew, y - P(44));
             if (twoColumns && split) y = Math.Max(y, advice.Bottom + P(22));
+            if (twoColumns && tb) y = Math.Max(y, tbInfo.Bottom + P(22));
             return y;
         }
 
@@ -608,6 +676,26 @@ namespace BrokenScreenResizer
             secTemplates.Location = new Point(x0, y); y += P(22);
             int th = picker.Measure(w);
             picker.SetBounds(x0, y, w, th); y += th + P(18);
+            return y;
+        }
+
+        // Windows düzenlemeleri sekmesinin orta kısmı; sağ sütun varsa açıklama kartı oraya
+        int LayoutTaskbar(int x0, int w, int y, int rightX, int ew)
+        {
+            secTaskbar.Location = new Point(x0, y); y += P(22);
+            int ch = Math.Max(P(230), Math.Min(P(400), w * 52 / 100));
+            if (body.ClientSize.Height < P(640)) ch = Math.Min(ch, P(280));
+            tbCanvas.SetBounds(x0, y, w, ch); y += ch + P(18);
+
+            secSide.Location = new Point(x0, y); y += P(22);
+            segSide.SetBounds(x0, y, w, P(38)); y += P(38) + P(18);
+
+            secAlign.Location = new Point(x0, y); y += P(22);
+            segAlign.SetBounds(x0, y, Math.Min(w, P(320)), P(38)); y += P(38) + P(12);
+            tLabels.SetBounds(x0, y, w, P(26)); y += P(26) + P(18);
+
+            if (twoColumns) tbInfo.SetBounds(rightX, P(22), ew, tbInfo.Measure(ew));
+            else { tbInfo.SetBounds(x0, y, w, tbInfo.Measure(w)); y += tbInfo.Height + P(18); }
             return y;
         }
 
@@ -664,6 +752,11 @@ namespace BrokenScreenResizer
         void OnMonitorChanged()
         {
             var m = Selected;
+            if (TaskbarTab)
+            {
+                UpdateTaskbar();
+                return;
+            }
             if (SplitTab)
             {
                 if (m != null && !cfg.Active && cfg.SplitMonitor != m.DevicePath) { cfg.SplitMonitor = m.DevicePath; cfg.Save(); }
@@ -672,6 +765,193 @@ namespace BrokenScreenResizer
             }
             if (m != null && !cfg.Active) cfg.MonitorPath = m.DevicePath;
             UpdateRange();
+        }
+
+        // ------------------------------------------------------------------ Windows düzenlemeleri: değerler
+        void UpdateTaskbar()
+        {
+            string selKey = tbCanvas.Selected >= 0 && tbCanvas.Selected < tbMons.Count ? tbMons[tbCanvas.Selected].Key : null;
+            tbMons = TaskbarLayout.Monitors();
+            int sel = -1;
+            for (int i = 0; i < tbMons.Count; i++) if (tbMons[i].Key == selKey) sel = i;
+            if (sel < 0) for (int i = 0; i < tbMons.Count; i++) if (tbMons[i].Primary) sel = i;
+            tbCanvas.Selected = Math.Max(0, sel);
+            SyncTaskbar();
+            UpdateState();
+        }
+
+        int TbAlign { get { return cfg.TaskbarAlign >= 0 ? cfg.TaskbarAlign : TaskbarTweaks.CurrentAlign(); } }
+
+        void SyncTaskbar()
+        {
+            if (tbCanvas == null) return;
+            var sides = TaskbarLayout.Parse(cfg.TaskbarSides);
+            var plan = TaskbarPlan.Make(tbMons, sides);
+            tbCanvas.Monitors = tbMons;
+            tbCanvas.Sides = sides;
+            tbCanvas.Plan = plan;
+            tbCanvas.Invalidate();
+
+            int i = tbCanvas.Selected;
+            if (i >= 0 && i < tbMons.Count)
+            {
+                var m = tbMons[i];
+                secSide.Text = Upper(string.Format(L.T("Seçili monitör: {0} · {1}", "Selected monitor: {0} · {1}"), m.Number, m.Name) +
+                                     (m.Primary ? "  (" + L.T("ana", "main") + ")" : ""));
+                sideItems = m.Primary ? new[] { TbSide.Bottom, TbSide.Top, TbSide.Left, TbSide.Right } : TbSide.Order;
+                var names = new string[sideItems.Length];
+                for (int k = 0; k < names.Length; k++) names[k] = sideItems[k] == TbSide.None ? L.T("Çubuk yok", "No taskbar") : TbSide.Name(sideItems[k]);
+                segSide.Items = names;
+                segSide.Selected = Array.IndexOf(sideItems, TaskbarLayout.SideOf(sides, m, plan.PrimarySide));
+            }
+            segAlign.Selected = TbAlign == 1 ? 0 : 1;
+            tLabels.Checked = cfg.TaskbarLabels;
+        }
+
+        void SetSide(int i, int side)
+        {
+            if (busy || i < 0 || i >= tbMons.Count) return;
+            var m = tbMons[i];
+            if (m.Primary && side == TbSide.None) return;
+            var d = TaskbarLayout.Parse(cfg.TaskbarSides);
+            d[m.Key] = side;
+            cfg.TaskbarSides = TaskbarLayout.Format(d);
+            cfg.Save();
+            SyncTaskbar();
+            UpdateState();
+        }
+
+        bool TaskbarChanged
+        {
+            get
+            {
+                return !cfg.TaskbarActive || cfg.TaskbarSides != cfg.TaskbarAppliedSides || TbAlign != cfg.TaskbarAppliedAlign ||
+                       cfg.TaskbarLabels != cfg.TaskbarAppliedLabels;
+            }
+        }
+
+        void UpdateTaskbarStatus()
+        {
+            var plan = TaskbarPlan.Make(tbMons, TaskbarLayout.Parse(cfg.TaskbarSides));
+            string sum = string.Format(L.T("Ana monitör: {0} (Windows'un çubuğu).", "Main monitor: {0} (Windows taskbar)."), TbSide.Name(plan.PrimarySide));
+            if (plan.Native)
+            {
+                if (tbMons.Count > 1) sum += " " + L.T("Diğer monitörlerde de Windows'un çubuğu aynı kenarda.", "The other monitors also use the Windows taskbar on the same edge.");
+            }
+            else
+            {
+                if (plan.BarMonitors.Count > 0)
+                    sum += " " + string.Format(L.T("{0} monitöre programın kendi görev çubuğu çizilir.", "The app draws its own taskbar on {0} monitor(s)."), plan.BarMonitors.Count);
+                if (plan.Hidden > 0)
+                    sum += " " + string.Format(L.T("{0} monitörde görev çubuğu olmaz.", "{0} monitor(s) get no taskbar."), plan.Hidden);
+            }
+
+            if (cfg.TaskbarActive && !TaskbarChanged)
+            {
+                status.Kind = StatusKind.Active;
+                status.Text = L.T("Görev çubuğu düzeni etkin. ", "Taskbar layout active. ") + sum +
+                              (taskbars != null && taskbars.Count > 0
+                                  ? " " + L.T("Program tepside çalışmalı; kapatılırsa diğer monitörlerde Windows'un çubuğu geri gelir.",
+                                              "The app must keep running; if it closes, the Windows taskbar comes back on the other monitors.")
+                                  : "");
+            }
+            else if (cfg.TaskbarActive)
+            {
+                status.Kind = StatusKind.Warn;
+                status.Text = L.T("Değişiklikler henüz uygulanmadı; Uygula'ya bas. ", "Changes aren't applied yet; press Apply. ") + sum;
+            }
+            else
+            {
+                status.Kind = StatusKind.Idle;
+                status.Text = L.T("Etkin değil. Her monitör için bir kenar seç, sonra Uygula'ya bas. ", "Not active. Pick an edge for each monitor, then press Apply. ") + sum;
+            }
+            if (!string.IsNullOrEmpty(tbWarn))
+            {
+                status.Kind = StatusKind.Warn;
+                status.Text = tbWarn + "\n\n" + status.Text;
+            }
+            status.Invalidate();
+        }
+
+        // Uygulanmış ayara göre plan (açılışta ve ekran düzeni değişince kullanılır)
+        TaskbarPlan AppliedPlan()
+        {
+            return TaskbarPlan.Make(TaskbarLayout.Monitors(), TaskbarLayout.Parse(cfg.TaskbarAppliedSides));
+        }
+
+        void StartTaskbars()
+        {
+            StopTaskbars();
+            var plan = AppliedPlan();
+            if (plan.Native) return;
+            taskbars = new TaskbarManager(AppliedPlan);
+            taskbars.ShowLabels = cfg.TaskbarAppliedLabels;
+            taskbars.Center = cfg.TaskbarAppliedAlign != 0;
+            taskbars.OpenSettings += delegate { OpenTaskbarTab(); };
+            taskbars.Start();
+        }
+
+        void StopTaskbars()
+        {
+            if (taskbars != null) { taskbars.Dispose(); taskbars = null; }
+        }
+
+        void OpenTaskbarTab()
+        {
+            if (cfg.Tab != 2) { cfg.Tab = 2; cfg.Save(); segTab.Selected = 2; RefreshMonitors(); }
+            Show();
+            if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+            BringIntoView();
+            Activate();
+        }
+
+        void ApplyTaskbar()
+        {
+            tbMons = TaskbarLayout.Monitors();
+            var plan = TaskbarPlan.Make(tbMons, TaskbarLayout.Parse(cfg.TaskbarSides));
+            int align = TbAlign;
+            busy = true;
+            UpdateState();
+            Cursor = Cursors.WaitCursor;
+            try
+            {
+                StopTaskbars();
+                tbWarn = TaskbarTweaks.Apply(plan, align, cfg);
+                cfg.TaskbarActive = true;
+                cfg.TaskbarAppliedSides = cfg.TaskbarSides;
+                cfg.TaskbarAlign = cfg.TaskbarAppliedAlign = align;
+                cfg.TaskbarAppliedLabels = cfg.TaskbarLabels;
+                cfg.Save();
+                StartTaskbars();
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+                busy = false;
+                UpdateTaskbar();
+            }
+        }
+
+        void RevertTaskbar()
+        {
+            StopTaskbars();
+            TaskbarTweaks.Restore(cfg);
+            cfg.TaskbarActive = false;
+            cfg.TaskbarAlign = -1;
+            tbWarn = null;
+            cfg.Save();
+            UpdateTaskbar();
+        }
+
+        // Açılışta: uygulanmış görev çubuğu düzenini geri getirir
+        void RestoreTaskbar()
+        {
+            if (!cfg.TaskbarActive) return;
+            var plan = AppliedPlan();
+            string warn = TaskbarTweaks.Apply(plan, cfg.TaskbarAppliedAlign >= 0 ? cfg.TaskbarAppliedAlign : TaskbarTweaks.CurrentAlign(), cfg);
+            cfg.Save();
+            StartTaskbars();
+            if (warn != null) { tbWarn = warn; Raise(warn); }
         }
 
         // ------------------------------------------------------------------ Ekran Çoğaltıcı: değerler
@@ -903,7 +1183,7 @@ namespace BrokenScreenResizer
 
         bool OverlayWanted(MonitorInfo m)
         {
-            return Visible && !SplitTab && tPreview.Checked && (editing || preview.Capture) && cfg.Cuts.Any &&
+            return Visible && cfg.Tab == 0 && tPreview.Checked && (editing || preview.Capture) && cfg.Cuts.Any &&
                    !cfg.Active && !busy && m != null && !m.IsModified;
         }
 
@@ -969,6 +1249,16 @@ namespace BrokenScreenResizer
             {
                 btnApply.Enabled = editable && m != null && SplitLayout.Valid(canvas.Regions, SplitSize);
                 UpdateSplitStatus();
+            }
+            else if (TaskbarTab)
+            {
+                // görev çubuğu ayarı diğer sekmelerden bağımsızdır; uygulanmışken de değiştirilip yeniden uygulanabilir
+                foreach (var c in new Ctl[] { tbCanvas, segSide, segAlign, tLabels }) { c.Enabled = !busy; c.Fogged = false; }
+                btnApply.Enabled = !busy && tbMons.Count > 0 && TaskbarChanged;
+                btnRevert.Enabled = !busy && cfg.TaskbarActive;
+                btnApply.Kind = BtnKind.Primary;
+                btnRevert.Kind = BtnKind.Secondary;
+                UpdateTaskbarStatus();
             }
             else if (cfg.Active && cfg.ActiveMode == Mode.Driver)
             {
@@ -1075,6 +1365,11 @@ namespace BrokenScreenResizer
         void ApplyClicked()
         {
             var m = Selected;
+            if (TaskbarTab)
+            {
+                ApplyTaskbar();
+                return;
+            }
             if (SplitTab)
             {
                 if (m == null || !SplitLayout.Valid(canvas.Regions, SplitSize)) return;
@@ -1426,6 +1721,7 @@ namespace BrokenScreenResizer
         // Program kapanırken ekranı güvenli hale getirir (pencere hiç açılmamış olsa bile)
         public void Shutdown()
         {
+            SuspendTaskbars();
             StopShield();
             if (mirror != null) { StopMirror(); DisplayLayout.RestoreBackup(); Vdd.RemoveAll(); }
         }
@@ -1433,6 +1729,11 @@ namespace BrokenScreenResizer
         void RevertClicked()
         {
             var m = Selected;
+            if (TaskbarTab)
+            {
+                RevertTaskbar();
+                return;
+            }
             if (cfg.Active && cfg.ActiveMode == Mode.Software) StopShield();
 
             if (cfg.Active && (cfg.ActiveMode == Mode.Virtual || cfg.ActiveMode == Mode.Split))
@@ -1466,8 +1767,19 @@ namespace BrokenScreenResizer
             RefreshMonitors();
         }
 
+        // Program kapanırken: çubukları kapat, diğer monitörlerde Windows'un çubuğunu geri getir (ayar korunur)
+        void SuspendTaskbars()
+        {
+            StopTaskbars();
+            if (cfg.TaskbarActive) TaskbarTweaks.Suspend(cfg);
+        }
+
         void EmergencyReset()
         {
+            StopTaskbars();
+            TaskbarTweaks.Restore(cfg);
+            cfg.TaskbarActive = false;
+            tbWarn = null;
             StopShield();
             StopMirror();
             DisplayLayout.RestoreBackup();
@@ -1502,8 +1814,14 @@ namespace BrokenScreenResizer
             if (shield != null) { shield.Stop(); shield = null; }
         }
 
-        // Program açılışında önceki etkin ayarı geri getirir
+        // Program açılışında önceki etkin ayarları geri getirir (önce ekran düzeni, sonra görev çubukları)
         public void RestoreActive()
+        {
+            RestoreDisplay();
+            RestoreTaskbar();
+        }
+
+        void RestoreDisplay()
         {
             if (!cfg.Active) return;
             if (cfg.ActiveMode == Mode.Split)
@@ -1649,7 +1967,7 @@ namespace BrokenScreenResizer
         {
             base.OnVisibleChanged(e);
             if (Visible) RefreshMonitors();
-            if (explainer != null) explainer.Running = Visible && twoColumns && !SplitTab;
+            if (explainer != null) explainer.Running = Visible && twoColumns && cfg.Tab == 0;
             UpdatePreview();
         }
 
@@ -1664,6 +1982,7 @@ namespace BrokenScreenResizer
                 return;
             }
             SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;
+            SuspendTaskbars();
             StopShield();
             // Sanal monitör modu programsız çalışamaz: kapanırken ekran düzenini güvenli hale döndür.
             // (Etkin bilgisi korunur; program tekrar açılınca kendiliğinden yeniden kurulur.)
