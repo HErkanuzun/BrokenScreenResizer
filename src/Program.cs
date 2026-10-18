@@ -74,6 +74,7 @@ namespace BrokenScreenResizer
             var menu = new ContextMenuStrip();
             menu.Items.Add(L.T("Aç", "Open"), null, delegate { ShowForm(); });
             menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(L.T("Programı kaldır…", "Uninstall…"), null, delegate { Uninstaller.Launch(); });
             menu.Items.Add(L.T("Çıkış", "Exit"), null, delegate { Quit(); });
             return menu;
         }
@@ -108,6 +109,12 @@ namespace BrokenScreenResizer
                 Environment.Exit(DriverSetup.Install());
                 return;
             }
+            // Tam kaldırmanın yönetici gerektiren kısmı (Uninstaller tarafından yönetici olarak başlatılır)
+            if (args.Length == 1 && args[0] == "--uninstall-system")
+            {
+                Environment.Exit(DriverSetup.Purge());
+                return;
+            }
             if (args.Length >= 1 && args[0] == "--uninstall-driver")
             {
                 // Kullanıcı doğrudan çalıştırdıysa kendini yönetici olarak yeniden başlatır
@@ -132,6 +139,13 @@ namespace BrokenScreenResizer
             Application.SetCompatibleTextRenderingDefault(false);
             var saved = Settings.Load();
             if (saved.Lang != "") L.Set(saved.Lang);
+
+            // Tam kaldırma: BrokenScreenResizer.exe --uninstall (Uninstall.bat bunu çağırır)
+            if (Array.IndexOf(args, "--uninstall") >= 0)
+            {
+                Environment.Exit(Uninstaller.Run());
+                return;
+            }
 
             // Acil durum: BrokenScreenResizer.exe --reset
             if (reset)

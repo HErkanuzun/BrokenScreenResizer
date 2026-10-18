@@ -35,6 +35,8 @@ if errorlevel 1 (
   if "%1"=="" pause
   exit /b 1
 )
+rem Kaldirma betigi exe'nin yaninda dagitilir
+copy /y Uninstall.bat bin\ >nul
 echo.
-echo TAMAM: bin\BrokenScreenResizer.exe
+echo TAMAM: bin\BrokenScreenResizer.exe + bin\Uninstall.bat
 if "%1"=="" pause

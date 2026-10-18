@@ -34,16 +34,8 @@ namespace BrokenScreenResizer
         public Ccd.MODE[] Modes;
     }
 
-    class ApplyResult
-    {
-        public bool Ok;
-        public Cuts ActualCuts;
-        public string Log = "";
-        public Snapshot Original;
-        public Snapshot Applied;
-    }
-
-    // "Sürücü modu": Windows'un ekran yapılandırmasını değiştirerek masaüstünü sinyalin sağlam kısmına yerleştirir.
+    // Windows ekran yapılandırması: monitör listesi ve eski "sürücü modu" (v1.5 ve öncesi) kırpmasını geri alma.
+    // Sürücü modu v1.6'da kaldırıldı; burada sadece monitörü tam ekrana döndüren kod kalır.
     static class DisplayConfig
     {
         const uint NONE = 0xFFFF;
@@ -151,10 +143,9 @@ namespace BrokenScreenResizer
             return s;
         }
 
-        // Kesim yoksa => tam ekran (sıfırlama)
-        static Snapshot Build(int pi, Cuts cut, bool centered, out Cuts actualCut, out string err)
+        // Monitörü tam ekrana döndüren yapılandırma (masaüstü = tüm sinyal)
+        static Snapshot BuildReset(int pi, out string err)
         {
-            actualCut = new Cuts();
             err = null;
             var s = Current();
             var p = s.Paths[pi];
@@ -163,46 +154,14 @@ namespace BrokenScreenResizer
             if (di == NONE) { err = L.T("Ekran sürücün 'görüntü yeri' ayarını sunmuyor.", "Your display driver does not expose the desktop image region."); return null; }
 
             var m = s.Modes;
-            // PathSourceSize: GPU'nun ürettiği tam görüntü (değişmez).
-            // DesktopImageRegion: masaüstünün bu görüntü içindeki yeri (bunun içinde kalmalı).
-            // DesktopImageClip ve kaynak modu: Windows'un gördüğü masaüstü boyutu.
             int W = m[di].dSrcX > 0 ? m[di].dSrcX : (int)m[ti].activeCx;
             int H = m[di].dSrcY > 0 ? m[di].dSrcY : (int)m[ti].activeCy;
-            int nw = W, nh = H;
-            int L1 = 0, T1 = 0, R1 = W, B1 = H;
-
-            if (cut.Any)
-            {
-                // Masaüstü sinyal içinde herhangi bir dikdörtgen olabilir: sol/üst kesim kadar içeriden başlar.
-                // Genişlik 8'in, yükseklik 2'nin katına yuvarlanır; artan birkaç piksel kesilen kenara eklenir.
-                if (cut.H > 0)
-                {
-                    nw = Math.Max(64, (W - cut.H) & ~7);
-                    L1 = cut.R == 0 ? W - nw : Math.Min(cut.L, W - nw);
-                    R1 = L1 + nw;
-                }
-                if (cut.V > 0)
-                {
-                    nh = Math.Max(64, (H - cut.V) & ~1);
-                    T1 = cut.B == 0 ? H - nh : Math.Min(cut.T, H - nh);
-                    B1 = T1 + nh;
-                }
-                if (centered)
-                {
-                    // NVIDIA'nın kabul ettiği biçim: aynı boyut, ortada
-                    L1 = (W - nw) / 2; R1 = L1 + nw;
-                    T1 = (H - nh) / 2; B1 = T1 + nh;
-                }
-            }
-            if (!centered) actualCut = new Cuts(L1, T1, W - R1, H - B1);
-            else actualCut = cut.H + cut.V > 0 ? Spread(cut, W - nw, H - nh) : cut;
 
             int x0 = m[si].posX, y0 = m[si].posY;
             int oldW = (int)m[si].srcWidth, oldH = (int)m[si].srcHeight;
-            int dW = oldW - nw, dH = oldH - nh;
-
-            m[si].srcWidth = (uint)nw;
-            m[si].srcHeight = (uint)nh;
+            int dW = oldW - W, dH = oldH - H;
+            m[si].srcWidth = (uint)W;
+            m[si].srcHeight = (uint)H;
 
             // Komşu monitörlerle arada boşluk ya da çakışma kalmasın
             if (dW != 0)
@@ -219,8 +178,8 @@ namespace BrokenScreenResizer
             }
 
             m[di].dSrcX = W; m[di].dSrcY = H;
-            m[di].regL = L1; m[di].regT = T1; m[di].regR = R1; m[di].regB = B1;
-            m[di].clipL = 0; m[di].clipT = 0; m[di].clipR = nw; m[di].clipB = nh;
+            m[di].regL = 0; m[di].regT = 0; m[di].regR = W; m[di].regB = H;
+            m[di].clipL = 0; m[di].clipT = 0; m[di].clipR = W; m[di].clipB = H;
             return s;
         }
 
@@ -230,99 +189,6 @@ namespace BrokenScreenResizer
                 Ccd.SDC_USE_SUPPLIED | Ccd.SDC_VIRTUAL_MODE_AWARE | flags);
         }
 
-        // Ayarı uygular (kaydetmeden). Sonra Keep() ya da Restore() çağrılmalı.
-        // Ortalanmış (NVIDIA) modda gerçek kesimi istenen oranda kenarlara dağıtır
-        static Cuts Spread(Cuts want, int dw, int dh)
-        {
-            int l = want.H > 0 ? dw * want.L / want.H : 0;
-            int t = want.V > 0 ? dh * want.T / want.V : 0;
-            return new Cuts(l, t, want.H > 0 ? dw - l : 0, want.V > 0 ? dh - t : 0);
-        }
-
-        public static ApplyResult TryApply(string devicePath, Cuts cut, bool centered)
-        {
-            var res = new ApplyResult();
-            var log = new StringBuilder();
-            int r = Load();
-            if (r != 0) { res.Log = L.T("Ekran yapılandırması okunamadı: ", "Could not read display config: ") + Err(r); return res; }
-            int pi = FindPath(devicePath);
-            if (pi < 0) { res.Log = L.T("Monitör bulunamadı.", "Monitor not found."); return res; }
-
-            res.Original = Current();
-            string err;
-            var s = Build(pi, cut, centered, out res.ActualCuts, out err);
-            if (s == null) { res.Log = err; return res; }
-            {
-                var dm = s.Modes[DeskIdx(s.Paths[pi])];
-                var sm = s.Modes[SrcIdx(s.Paths[pi])];
-                log.AppendLine(L.T("Denenen: masaüstü ", "Trying: desktop ") + sm.srcWidth + "x" + sm.srcHeight +
-                    ", " + L.T("görüntü ", "image ") + dm.dSrcX + "x" + dm.dSrcY +
-                    ", " + L.T("yer ", "region ") + dm.regL + "," + dm.regT + "-" + dm.regR + "," + dm.regB);
-            }
-
-            // Farklı ölçekleme modlarını sırayla dene: mevcut, özel, birebir, ortalanmış
-            uint[] scalings = { s.Paths[pi].tgt.scaling, 5, 1, 2 };
-            bool applied = false;
-            foreach (uint sc in scalings)
-            {
-                s.Paths[pi].tgt.scaling = sc;
-                int v = Set(s, Ccd.SDC_VALIDATE);
-                log.AppendLine(L.T("Ölçekleme ", "Scaling ") + sc + L.T(" kontrolü: ", " validate: ") + Err(v));
-                if (v != 0) continue;
-                int a = Set(s, Ccd.SDC_APPLY);
-                log.AppendLine(L.T("Ölçekleme ", "Scaling ") + sc + L.T(" uygulama: ", " apply: ") + Err(a));
-                if (a == 0) { applied = true; break; }
-            }
-            if (!applied)
-            {
-                log.AppendLine(L.T("Sürücü bu ayarı kabul etmedi. Hiçbir şey değişmedi.", "The driver rejected this setting. Nothing was changed."));
-                res.Log = log.ToString();
-                return res;
-            }
-            res.Applied = s;
-
-            // Sürücü gerçekten ne uyguladı?
-            Thread.Sleep(1200);
-            Load();
-            int pj = FindPath(devicePath);
-            if (pj >= 0)
-            {
-                uint di = DeskIdx(paths[pj]);
-                uint wantDi = DeskIdx(s.Paths[pi]);
-                if (di != NONE && di < modes.Length)
-                {
-                    var got = modes[di];
-                    var want = s.Modes[wantDi];
-                    log.AppendLine(L.T("İstenen yer: ", "Requested: ") + want.regL + "," + want.regT + " - " + want.regR + "," + want.regB);
-                    log.AppendLine(L.T("Uygulanan yer: ", "Applied: ") + got.regL + "," + got.regT + " - " + got.regR + "," + got.regB);
-                    if (Math.Abs(got.regL - want.regL) > 8 || Math.Abs(got.regT - want.regT) > 8 ||
-                        Math.Abs(got.regR - want.regR) > 8 || Math.Abs(got.regB - want.regB) > 8)
-                    {
-                        log.AppendLine(L.T("Sürücü konumu kendi bildiği gibi değiştirdi; bu sistemde sürücü modu çalışmıyor.",
-                                           "The driver overrode the position; driver mode does not work on this system."));
-                        Restore(res.Original);
-                        res.Log = log.ToString();
-                        return res;
-                    }
-                }
-            }
-            res.Ok = true;
-            res.Log = log.ToString();
-            return res;
-        }
-
-        public static int Keep(Snapshot applied)
-        {
-            return Set(applied, Ccd.SDC_APPLY | Ccd.SDC_SAVE);
-        }
-
-        public static int Restore(Snapshot original)
-        {
-            int r = Set(original, Ccd.SDC_APPLY | Ccd.SDC_ALLOW_CHANGES);
-            if (r != 0) r = Ccd.SetDisplayConfig(0, null, 0, null, Ccd.SDC_APPLY | Ccd.SDC_USE_DATABASE_CURRENT);
-            return r;
-        }
-
         // Monitörü tam ekrana döndürür ve kalıcı kaydeder.
         public static int Reset(string devicePath)
         {
@@ -330,8 +196,8 @@ namespace BrokenScreenResizer
             if (r != 0) return r;
             int pi = FindPath(devicePath);
             if (pi < 0) return 87;
-            Cuts c; string err;
-            var s = Build(pi, new Cuts(), false, out c, out err);
+            string err;
+            var s = BuildReset(pi, out err);
             if (s == null) return 50;
             return Set(s, Ccd.SDC_APPLY | Ccd.SDC_SAVE | Ccd.SDC_ALLOW_CHANGES);
         }
@@ -352,19 +218,6 @@ namespace BrokenScreenResizer
                 if (m.IsModified)
                     sb.AppendLine(m.Name + ": " + Err(Reset(m.DevicePath)));
             return sb.Length == 0 ? L.T("Kırpılmış monitör yok.", "No cropped monitors.") : sb.ToString();
-        }
-
-        public static bool IsApplied(string devicePath, Cuts cut, bool centered)
-        {
-            foreach (var m in GetMonitors())
-            {
-                if (m.DevicePath != devicePath) continue;
-                if (!m.HasRegion) return false;
-                bool size = Math.Abs((m.RegR - m.RegL) - (m.PathW - cut.H)) <= 8 && Math.Abs((m.RegB - m.RegT) - (m.PathH - cut.V)) <= 2;
-                if (centered) return size;
-                return size && Math.Abs(m.RegL - cut.L) <= 8 && Math.Abs(m.RegT - cut.T) <= 2;
-            }
-            return false;
         }
     }
 }

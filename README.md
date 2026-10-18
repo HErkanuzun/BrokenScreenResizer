@@ -50,7 +50,7 @@ Eski adlı sürücü ("Ekran Kurtar Virtual Display") kuruluysa, yeni sürücü 
 
 ## Kullanım
 
-1. [Releases](../../releases) sayfasından `BrokenScreenResizer.exe` dosyasını indir ve çalıştır (kurulum gerekmez).
+1. [Releases](../../releases) sayfasından `BrokenScreenResizer-v1.6.zip` dosyasını indirip çıkart. `BrokenScreenResizer.exe` dosyasını çalıştır; kaldırma gerektiğinde paketteki `Uninstall.bat` dosyasını kullan.
 2. Bozuk monitörü seç.
 3. Monitör çiziminde bozuk olan her kenarı, kırmızı alan bozuk kısmı tam kaplayana kadar sürükle. İnce ayar için **Bozuk kenarlar** bölümünden kenarı seçip kaydırıcıyı ya da −/+ düğmelerini kullan. Kesim olan kenarlar seçicide • ile işaretlenir.
 4. **Uygula**'ya bas ve görüntü doğruysa **Böyle kalsın**'ı seç.
@@ -98,6 +98,8 @@ Kurulum günlüğü: `C:\ProgramData\BrokenScreenResizer\driver\install.log`
 - .NET Framework 4.x (Windows'ta hazır gelir)
 
 ## Sürüm geçmişi
+
+- **v1.6:** Sürücü modu kaldırıldı; sanal monitör ve yazılım modları kaldı. Uygulamayı ve tam kaldırma betiğini içeren ZIP paketi hazırlanır.
 
 - **v1.5:** Yeni ad: **Broken Screen Resizer** (dosya adları İngilizce; eski ayarlar, başlangıç kaydı ve eski adlı sürücü kendiliğinden taşınır). **Birden fazla bozuk kenar:** dört kenar ayrı ayrı kesilebilir, sağlam alan ekranın herhangi bir dikdörtgeni olabilir; üç yöntemin üçü de destekler. Önizlemede kenar, köşe ve tüm alan sürüklenebilir.
 - **v1.4:** Sanal monitör modunda takılma ve "pencere görünüyor ama tıklanmıyor" sorunu düzeltildi: ayna ve fare kilidi ayrı iş parçacıklarında çalışıyor, fiziksel monitörün arkasında kalan pencereler otomatik olarak sanal monitöre taşınıyor. Program tekrar açılınca penceresi görünür yere geliyor. `--reset` çalışan programı düzgünce kapatıyor.
@@ -149,6 +151,8 @@ Emergency reset: use the **Emergency: reset all monitors** link, run `BrokenScre
 Run `build.bat` on Windows. It uses the .NET Framework 4 compiler included with Windows. Output: `bin\BrokenScreenResizer.exe`, with the driver package from `driver\package` embedded.
 
 The virtual display driver (`driver\`) is an IddCx / UMDF 2 indirect display driver. To rebuild it, install Visual Studio 2022/2026 with the C++ desktop workload and run `driver\build_driver.bat` (it downloads the official WDK NuGet package if the WDK is not installed, then builds, catalogs and signs the driver with a self-signed certificate created on your machine), then run `build.bat`.
+
+GitHub Actions packages `BrokenScreenResizer.exe` and `Uninstall.bat` together as `BrokenScreenResizer-v1.6.zip` for the v1.6 release.
 
 ## License
 
