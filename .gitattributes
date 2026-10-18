@@ -1,0 +1,3 @@
+# İmzalı sürücü paketi: katalog (.cat) dosyaların bayt bayt özetini içerir.
+# Git satır sonlarını değiştirirse (core.autocrlf) imza bozulur ve Windows sürücüyü reddeder.
+driver/package/** binary

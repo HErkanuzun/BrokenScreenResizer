@@ -5,7 +5,7 @@ using System.IO;
 namespace BrokenScreenResizer
 {
     enum Edge { Left = 0, Top = 1, Right = 2, Bottom = 3 }   // değerler AppBar kenar kodlarıyla aynı
-    enum Mode { Driver = 0, Software = 1, Virtual = 2 }   // Driver: v0.6 ve öncesinden kalan ayarı tanımak için
+    enum Mode { Driver = 0, Software = 1, Virtual = 2, Split = 3 }   // Driver: v0.6 ve öncesinden kalan ayarı tanımak için; Split: Ekran Çoğaltıcı (v1.5)
 
     // Monitörün dört kenarından gizlenen (bozuk) şeritler, piksel cinsinden.
     // Kalan dikdörtgen "sağlam alan"dır; böylece ekranın herhangi bir dikdörtgen bölgesi kullanılabilir.
@@ -104,6 +104,12 @@ namespace BrokenScreenResizer
         public string Lang = "";
         public bool DriverWarp = false;
 
+        // Ekran Çoğaltıcı (v1.5): bir monitörü birden fazla sanal monitöre böler
+        public int Tab = 0;                        // 0 = bozuk ekran, 1 = Ekran Çoğaltıcı
+        public string SplitMonitor = "";           // bölünen monitörün yolu
+        public string SplitRegions = "";           // "x,y,w,h;..." monitör pikseli cinsinden
+        public float SplitDiag = 0;                // elle girilen köşegen (inç); 0 = monitör bilgisinden
+
         public const string AppName = "BrokenScreenResizer";
         public const string LegacyName = "EkranKurtar";   // v0.6 öncesi adı
 
@@ -152,13 +158,20 @@ namespace BrokenScreenResizer
                         case "edge": if (int.TryParse(v, out n) && n >= 0 && n <= 3) edge = n; break;
                         case "cut": if (int.TryParse(v, out n) && n >= 0) cut = n; break;
                         // sürücü modu v0.7'de kaldırıldı: yazılım moduna geçilir
-                        case "mode": s.Mode = ParseMode(v, Mode.Software); if (s.Mode == Mode.Driver) s.Mode = Mode.Software; break;
+                        case "mode": s.Mode = ParseMode(v, Mode.Software); if (s.Mode == Mode.Driver || s.Mode == Mode.Split) s.Mode = Mode.Software; break;
                         case "active": s.Active = v == "1"; break;
                         case "activeMode": s.ActiveMode = ParseMode(v, Mode.Driver); break;
                         case "driverWarp": s.DriverWarp = v == "1"; break;
                         case "lockCursor": s.LockCursor = v == "1"; break;
                         case "fixWindows": s.FixWindows = v == "1"; break;
                         case "lang": s.Lang = v; break;
+                        case "tab": if (int.TryParse(v, out n) && (n == 0 || n == 1)) s.Tab = n; break;
+                        case "splitMonitor": s.SplitMonitor = v; break;
+                        case "splitRegions": s.SplitRegions = v; break;
+                        case "splitDiag":
+                            float d;
+                            if (float.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out d) && d >= 0 && d < 1000) s.SplitDiag = d;
+                            break;
                     }
                 }
                 if (!hasCuts && edge >= 0)
@@ -174,7 +187,7 @@ namespace BrokenScreenResizer
         static Mode ParseMode(string v, Mode def)
         {
             int n;
-            return int.TryParse(v, out n) && n >= 0 && n <= 2 ? (Mode)n : def;
+            return int.TryParse(v, out n) && n >= 0 && n <= 3 ? (Mode)n : def;
         }
 
         public void Save()
@@ -192,7 +205,11 @@ namespace BrokenScreenResizer
                     "lockCursor=" + (LockCursor ? "1" : "0"),
                     "fixWindows=" + (FixWindows ? "1" : "0"),
                     "lang=" + Lang,
-                    "driverWarp=" + (DriverWarp ? "1" : "0")
+                    "driverWarp=" + (DriverWarp ? "1" : "0"),
+                    "tab=" + Tab,
+                    "splitMonitor=" + SplitMonitor,
+                    "splitRegions=" + SplitRegions,
+                    "splitDiag=" + SplitDiag.ToString(System.Globalization.CultureInfo.InvariantCulture)
                 });
             }
             catch { }

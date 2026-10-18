@@ -96,7 +96,7 @@ namespace BsrVdd
     private:
         struct Command { bool Add; UINT Slot; };
 
-        NTSTATUS QueueAdd(UINT width, UINT height, UINT refresh, UINT* id);
+        NTSTATUS QueueAdd(UINT width, UINT height, UINT refresh, bool forceNew, UINT* id);
         void QueueRemove(UINT id);
         void WorkerLoop();
         void DoAdd(UINT slot);
