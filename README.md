@@ -29,6 +29,7 @@
 - [Yöntemler](#yöntemler)
 - [Ekran Çoğaltıcı (önizleme)](#ekran-çoğaltıcı-önizleme)
 - [Windows düzenlemeleri (önizleme)](#windows-düzenlemeleri-önizleme)
+- [Ekran düzeni (önizleme)](#ekran-düzeni-önizleme)
 - [Güvenlik ve gizlilik](#güvenlik-ve-gizlilik)
 - [Güncelleme ve kaldırma](#güncelleme-ve-kaldırma)
 - [Sorun giderme](#sorun-giderme)
@@ -141,6 +142,17 @@ Görev çubuğunu her monitörde ayrı bir kenara yaslar: örneğin ana monitör
 
 **Not:** Görev çubuğunu alt dışındaki bir kenara taşıma özelliği Windows 11'e 2026'da Windows Update ile kademeli olarak geldi. Windows'un henüz bunu desteklemiyorsa ana monitördeki çubuk altta kalır ve program bunu söyler; diğer monitörlerin ayarı yine uygulanır. Program yalnızca kullanıcıya ait görev çubuğu ayarlarını değiştirir; ilk değerleri saklar ve **Geri al**, **acil sıfırlama** ya da kaldırma sırasında geri yazar.
 
+## Ekran düzeni (önizleme)
+
+> **Önizleme sürümü.** Bu özellik v1.7 ön sürümündedir.
+
+Monitörlerin masaüstündeki yerini Windows Ekran ayarlarına gitmeden, programın **Ekran düzeni** sekmesinden ayarlarsın.
+
+- Ekranı sürükle: bıraktığın yerde en yakın ekranın kenarına yapışır; üst, alt ya da ortası yakınsa hizalanır. Ekranlar üst üste binmez ve hep birbirine değer.
+- Bir ekrana tıklayıp **Ana ekran yap** ile Windows'un ana ekranını değiştir.
+- **Uygula**'dan sonra 15 saniye içinde onaylamazsan eski düzen geri gelir.
+- Sanal monitör ya da Ekran Çoğaltıcı açıkken bozuk monitörün görünmeyen kopyası listede yoktur; program onu hep diğer ekranların altına alır. Yeni düzen kaydedilir, program yeniden açılınca da korunur.
+
 ## Güvenlik ve gizlilik
 
 Broken Screen Resizer açık kaynaklıdır; aşağıdakilerin hepsi koddan doğrulanabilir.
@@ -172,6 +184,18 @@ Kod imzalama: **[Code signing policy](SECURITY.md#code-signing-policy)** (SignPa
 Kaldırma ekranları eski haline getirir; sanal sürücüyü ve sertifikasını, Windows'un sanal monitör kayıtlarını, başlangıç kaydını ve ayarları siler. Sürücü kuruluysa Windows bir kez yönetici izni ister.
 
 ## Sorun giderme
+
+<details>
+<summary><b>Sanal monitör modunda ekran bembeyaz kaldı</b></summary>
+
+v1.7'den itibaren ayna bunu kendisi fark edip birkaç saniye içinde onarır. Geçmezse tepsi simgesine sağ tıklayıp **Ekranı onar**'ı seç; programı kapatıp açmaya gerek yok.
+</details>
+
+<details>
+<summary><b>Windows'ta fazladan (3.) bir ekran görünüyor</b></summary>
+
+Sanal monitör modunda bozuk monitörün kendisi Windows'ta ayrı bir ekran olarak kalır; görüntü oraya kopyalandığı için Windows'un onu açık tutması gerekir. Fare oraya giremez, oraya düşen pencereler anında geri alınır ve programın kendi ekran listelerinde gösterilmez. Yönetici olarak çalışan bir pencere orada kalırsa onu seçip **Win+Shift+←/→** ile taşıyabilirsin.
+</details>
 
 <details>
 <summary><b>Ekran garip kaldı ya da yanlış monitör kırpıldı</b></summary>
@@ -251,6 +275,7 @@ docs/         Diğer dillerde README ve görseller
 
 Ayrıntılar: [CHANGELOG.md](CHANGELOG.md) · Tüm sürümler: [Releases](https://github.com/HErkanuzun/BrokenScreenResizer/releases)
 
+- **v1.7 (önizleme)** — Ekran düzeni: monitörlerin yerini program içinden sürükleyerek ayarla. Sanal monitör modunda beyaz kalan ayna kendini onarır; görünmeyen 3. ekrana düşen pencereler anında geri gelir. Ayna monitörün yenilenmesine (VSync) göre çizilir; oyunlarda daha akıcı. Kararlı sürüm değildir.
 - **v1.6 (önizleme)** — Windows düzenlemeleri: görev çubuğunu her monitörde istediğin kenara yasla (alt, üst, sol, sağ ya da çubuksuz). Ana monitörde Windows'un çubuğu, diğerlerinde gerekirse programın kendi çubuğu. Kararlı sürüm değildir.
 - **v1.5 (önizleme)** — Ekran Çoğaltıcı: büyük bir monitörü 8'e kadar ayrı ekrana böl. Sürükle ve it düzenleyici, şablonlar, piksel yoğunluğuna göre üç öneri. Sanal ekran sürücüsü 2.0. Kararlı sürüm değildir.
 - **v1.01** — Geniş pencerede ve tam ekranda içerik ortalanır. Ayar uygulanınca değiştirilemeyen kısımlar sisli görünür, kilit etiketi çıkar ve Geri al öne çıkar.

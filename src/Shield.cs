@@ -125,10 +125,20 @@ namespace BrokenScreenResizer
         readonly string gdiName;
         readonly Cuts signalCuts;   // monitör çözünürlüğüne göre
         readonly int signalW, signalH;
-        Cuts cuts;                  // masaüstü koordinatlarına göre
-        public bool LockCursor, FixWindows;
-        Rectangle screenBounds;
+        public volatile bool LockCursor, FixWindows;
         readonly List<AppBarForm> bars = new List<AppBarForm>();
+
+        // Monitör bilgileri tek nesnede tutulur: fare kancası ayrı iş parçacığında çalıştığı için
+        // her seferinde tutarlı (yarım güncellenmemiş) bir kopya okur.
+        class Geo
+        {
+            public Rectangle S;              // monitörün masaüstü koordinatları
+            public Cuts C;                   // masaüstü koordinatlarına göre kesimler
+            public Screen[] All = new Screen[0];
+        }
+        volatile Geo geo = new Geo();
+        Rectangle screenBounds { get { return geo.S; } }
+        Cuts cuts { get { return geo.C; } }
         Timer timer;
         readonly uint myPid;
 
@@ -147,9 +157,12 @@ namespace BrokenScreenResizer
 
         void ReadScreen(Screen s)
         {
-            screenBounds = s.Bounds;
-            screens = Screen.AllScreens;
-            cuts = signalW > 0 && signalH > 0 ? signalCuts.Scale(signalW, signalH, s.Bounds.Width, s.Bounds.Height) : signalCuts;
+            geo = new Geo
+            {
+                S = s.Bounds,
+                All = Screen.AllScreens,
+                C = signalW > 0 && signalH > 0 ? signalCuts.Scale(signalW, signalH, s.Bounds.Width, s.Bounds.Height) : signalCuts
+            };
         }
 
         public bool Start()
@@ -164,9 +177,10 @@ namespace BrokenScreenResizer
                 bar.Show();
                 bars.Add(bar);
             }
-            try { InstallHook(); } catch { hook = IntPtr.Zero; }
+            // fare kancası kendi iş parçacığında: arayüz meşgulken de fare takılmaz (oyunlarda gecikme olmaz)
+            try { hooks = new HookThread(OnMouse, null); hooks.Start(); } catch { hooks = null; }
             timer = new Timer();
-            timer.Interval = 30;
+            timer.Interval = 50;
             timer.Tick += delegate { Tick(); };
             timer.Start();
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplayChanged;
@@ -181,8 +195,7 @@ namespace BrokenScreenResizer
                 var s = FindScreen(gdiName);
                 if (s == null) return;
                 // Şerit kalınlıkları değişmez; sadece konumlar güncellenir
-                screenBounds = s.Bounds;
-                screens = Screen.AllScreens;
+                geo = new Geo { S = s.Bounds, C = geo.C, All = Screen.AllScreens };
                 foreach (var b in bars) b.Update(screenBounds);
             });
         }
@@ -190,7 +203,7 @@ namespace BrokenScreenResizer
         public void Stop()
         {
             Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;
-            RemoveHook();
+            if (hooks != null) { hooks.Stop(); hooks = null; }
             if (timer != null) { timer.Stop(); timer.Dispose(); timer = null; }
             foreach (var b in bars) { b.Unregister(); b.Close(); b.Dispose(); }
             bars.Clear();
@@ -204,7 +217,7 @@ namespace BrokenScreenResizer
 
         void Tick()
         {
-            if (LockCursor) PushCursor();
+            if (LockCursor && (hooks == null || !hooks.MouseHooked)) PushCursor();   // yedek: kanca kurulamadıysa
             if (FixWindows) PushForegroundWindow();
         }
 
@@ -217,8 +230,9 @@ namespace BrokenScreenResizer
         bool Redirect(int px, int py, int fromX, int fromY, out int x, out int y)
         {
             x = px; y = py;
-            var S = screenBounds;
-            var g = cuts.Good(S);
+            var G0 = geo;
+            var S = G0.S;
+            var g = G0.C.Good(S);
             if (!S.Contains(px, py) || g.Contains(px, py)) return false;
             x = Math.Max(g.Left, Math.Min(g.Right - 1, px));
             y = Math.Max(g.Top, Math.Min(g.Bottom - 1, py));
@@ -235,7 +249,7 @@ namespace BrokenScreenResizer
                 foreach (var t in tries)
                 {
                     if (t.X == x && t.Y == y) continue;
-                    foreach (var s in screens)
+                    foreach (var s in G0.All)
                         if (s.DeviceName != gdiName && s.Bounds.Contains(t)) { x = t.X; y = t.Y; return true; }
                 }
             }
@@ -255,41 +269,19 @@ namespace BrokenScreenResizer
 
         // Asıl yöntem: düşük seviyeli fare kancası. Hareket olayı daha işlenmeden yakalanır,
         // böylece imleç bozuk alanda bir an bile görünmez.
-        Win.LowLevelMouseProc hookProc;
-        IntPtr hook = IntPtr.Zero;
-        Screen[] screens = new Screen[0];
+        // (v1.7: kanca HookThread'de, arayüz iş parçacığından bağımsız çalışır)
+        HookThread hooks;
 
-        void InstallHook()
+        bool OnMouse(int px, int py)
         {
-            hookProc = HookCallback;
-            using (var proc = System.Diagnostics.Process.GetCurrentProcess())
-            using (var mod = proc.MainModule)
-                hook = Win.SetWindowsHookEx(Win.WH_MOUSE_LL, hookProc, Win.GetModuleHandle(mod.ModuleName), 0);
-        }
-
-        void RemoveHook()
-        {
-            if (hook != IntPtr.Zero) { Win.UnhookWindowsHookEx(hook); hook = IntPtr.Zero; }
-        }
-
-        IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
-        {
-            if (nCode >= 0 && LockCursor && wParam.ToInt64() == Win.WM_MOUSEMOVE)
-            {
-                var info = (Win.MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(Win.MSLLHOOKSTRUCT));
-                Win.POINT cur;
-                if (Win.GetCursorPos(out cur))
-                {
-                    int x, y;
-                    if (Redirect(info.pt.X, info.pt.Y, cur.X, cur.Y, out x, out y))
-                    {
-                        Win.SetCursorPos(x, y);
-                        lastX = x; lastY = y;
-                        return new IntPtr(1);   // asıl hareketi engelle
-                    }
-                }
-            }
-            return Win.CallNextHookEx(hook, nCode, wParam, lParam);
+            if (!LockCursor) return false;
+            Win.POINT cur;
+            if (!Win.GetCursorPos(out cur)) return false;
+            int x, y;
+            if (!Redirect(px, py, cur.X, cur.Y, out x, out y)) return false;
+            Win.SetCursorPos(x, y);
+            lastX = x; lastY = y;
+            return true;   // asıl hareketi engelle
         }
 
         static readonly string[] SkipClasses = {

@@ -87,9 +87,11 @@ namespace BrokenScreenResizer
         readonly Timer timer;
         readonly Panel bar;
         readonly int barW;
+        readonly string question;   // {0} = kalan saniye; null ise bozuk ekran sorusu
 
-        public ConfirmDialog(Rectangle placeOn)
+        public ConfirmDialog(Rectangle placeOn, string question = null)
         {
+            this.question = question;
             StartPosition = FormStartPosition.Manual;
             int W = Theme.P(460), x0 = Theme.P(24), w = W - x0 * 2;
 
@@ -142,7 +144,7 @@ namespace BrokenScreenResizer
         void UpdateText()
         {
             double left = Math.Max(0, (end - DateTime.Now).TotalSeconds);
-            string t = string.Format(L.T(
+            string t = string.Format(question ?? L.T(
                 "Masaüstü artık sadece sağlam kısımda mı görünüyor?\n\nOnaylamazsan {0} saniye içinde eski haline dönecek.",
                 "Is the desktop now shown only on the working part?\n\nReverting in {0} seconds unless you confirm."), (int)Math.Ceiling(left));
             if (lblText.Text != t) lblText.Text = t;

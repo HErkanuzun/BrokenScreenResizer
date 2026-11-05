@@ -5,6 +5,28 @@ Türkçe özet için [README](README.md#sürüm-geçmişi).
 
 > **Version numbers were reorganized with v1.0.** Earlier releases were renumbered into the 0.x range; their previous numbers are shown in brackets.
 
+## [1.7] - 2026-11-03 *(preview)*
+
+Pre-release from the `develop` branch. The stable release is still [1.01](#101---2026-10-18).
+
+### Added
+- **Display layout** (new tab): arrange the monitors inside the app instead of Windows Display settings.
+  - Drag a screen; when dropped it snaps to the edge of the nearest screen and lines up with its top, bottom or middle. Screens never overlap and always touch another screen.
+  - **Make main display** button. Apply asks for confirmation and reverts after 15 seconds otherwise.
+  - In virtual monitor mode and Screen Multiplier, the broken monitor's hidden copy is not listed; it is always placed below the other screens. Screen Multiplier's screens move together. The new layout is also written to the saved layout, so it is kept after a restart or Revert.
+- Tray menu **Repair screen (white / frozen picture)**: rebuilds the virtual monitor and mirror without restarting the app.
+
+### Fixed
+- **Mirror turning completely white** in virtual monitor mode (until the app was restarted). The Magnifier could lose its picture after the lock screen, UAC prompts, sleep, display changes or a game switching modes. The mirror now checks itself every 2 seconds on a background thread and rebuilds itself, and after unlocking or waking up. If that doesn't help, the app sets the virtual monitor up again on its own (at most once every 2 minutes). Windows' "not responding" ghost windows are disabled for the app.
+- **Windows opening on the hidden third screen.** In virtual monitor mode the physical monitor stays in Windows as an extra screen behind the mirror. Windows that land there are now brought back as soon as they appear or move (window events instead of checking 5 times a second), including tool windows with a title bar. If a window can't be moved (for example an app running as administrator), the app says which one and how to move it.
+- The hidden screen no longer appears in the app's own monitor lists (Windows tweaks, Display layout).
+
+### Performance
+- The mirror is drawn in sync with the monitor's refresh (VSync) instead of a timer: smoother picture in games, no extra frames, and no 1 ms system timer while VSync works.
+- The mouse hook in software mode runs on its own thread, like in virtual monitor mode, so a busy window can't delay the mouse.
+- The mouse hooks read the cursor position without allocating memory on every mouse move.
+- The app's taskbars don't ask windows for their icons while a full-screen game or video is in front.
+
 ## [1.6] - 2026-10-18 *(preview)*
 
 Pre-release from the `develop` branch. The stable release is still [1.01](#101---2026-10-18).

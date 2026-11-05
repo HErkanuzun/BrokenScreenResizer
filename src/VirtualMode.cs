@@ -17,6 +17,7 @@ namespace BrokenScreenResizer
     //  2) Sanal monitör, fiziksel monitörün yerine konur; fiziksel monitör düzende kenara alınır.
     //  3) Sanal monitörün görüntüsü Windows Büyüteç API'siyle fiziksel monitörün sağlam kısmına 1:1 kopyalanır.
     //  4) Fare fiziksel monitörün (artık sadece ayna olan) alanına giremez.
+    //  5) (v1.7) Ayna kendini denetler, beyaz kalırsa onarır; fiziksel monitöre düşen pencereler anında geri alınır.
     // ===================================================================================
 
     static class VNative
@@ -248,6 +249,34 @@ namespace BrokenScreenResizer
         }
     }
 
+    // ------------------------------------------------------------------ Ayna için ek Windows çağrıları (v1.7)
+    static class MNative
+    {
+        [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr h);
+        [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr h, IntPtr dc);
+        [DllImport("gdi32.dll")] public static extern uint GetPixel(IntPtr dc, int x, int y);
+        public const uint CLR_INVALID = 0xFFFFFFFF;
+
+        [DllImport("gdi32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr CreateDC(string driver, string device, string output, IntPtr init);
+        [DllImport("gdi32.dll")] public static extern bool DeleteDC(IntPtr dc);
+
+        // Monitörün dikey senkron (yenileme) anını beklemek için
+        [StructLayout(LayoutKind.Sequential)]
+        public struct D3DKMT_OPENADAPTERFROMHDC { public IntPtr hDc; public uint hAdapter; public uint LuidLow; public int LuidHigh; public uint VidPnSourceId; }
+        [StructLayout(LayoutKind.Sequential)]
+        public struct D3DKMT_WAITFORVERTICALBLANKEVENT { public uint hAdapter; public uint hDevice; public uint VidPnSourceId; }
+        [StructLayout(LayoutKind.Sequential)]
+        public struct D3DKMT_CLOSEADAPTER { public uint hAdapter; }
+        [DllImport("gdi32.dll")] public static extern int D3DKMTOpenAdapterFromHdc(ref D3DKMT_OPENADAPTERFROMHDC p);
+        [DllImport("gdi32.dll")] public static extern int D3DKMTWaitForVerticalBlankEvent(ref D3DKMT_WAITFORVERTICALBLANKEVENT p);
+        [DllImport("gdi32.dll")] public static extern int D3DKMTCloseAdapter(ref D3DKMT_CLOSEADAPTER p);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder sb, int max);
+        [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
+        public const int GWL_STYLE = -16, WS_CAPTION = 0x00C00000;
+        public const uint WAIT_OBJECT_0 = 0, WAIT_TIMEOUT = 0x102;
+    }
+
     // ------------------------------------------------------------------ Ayna penceresi (fiziksel monitörde)
     // Fiziksel monitörü kaplayan siyah pencere; içindeki her Büyüteç alt penceresi bir sanal monitörün
     // görüntüsünü monitörün bir bölgesine 1:1 çizer (bozuk ekran: tek bölge, Ekran Çoğaltıcı: birden çok).
@@ -317,15 +346,19 @@ namespace BrokenScreenResizer
             }
         }
 
-        // Her karede çağrılır
-        public void Frame()
+        // Her karede çağrılır. false: Büyüteç kaynağı kabul etmedi (ayna bozulmuş olabilir)
+        public bool Frame()
         {
+            bool ok = true;
             for (int i = 0; i < mags.Length; i++)
             {
-                if (mags[i] == IntPtr.Zero) continue;
-                VNative.MagSetWindowSource(mags[i], sources[i]);
+                if (mags[i] == IntPtr.Zero) { ok = false; continue; }
+                if (!VNative.MagSetWindowSource(mags[i], sources[i])) ok = false;
+                // Arka plan silinir: Büyüteç çizemezse ayna donmuş eski görüntüde kalmaz, beyaz görünür
+                // ve sağlık denetimi bunu yakalayıp aynayı yeniden kurar.
                 VNative.InvalidateRect(mags[i], IntPtr.Zero, true);
             }
+            return ok;
         }
 
         protected override void OnHandleDestroyed(EventArgs e)
@@ -337,8 +370,14 @@ namespace BrokenScreenResizer
     }
 
     // ------------------------------------------------------------------ Sanal monitör modunu yöneten sınıf
-    // Ayna çizimi ve fare kancası ayrı iş parçacıklarında çalışır; ana pencere ne yaparsa yapsın
-    // ayna akıcı kalır, fare de takılmaz.
+    // Ayna çizimi, dikey senkron bekleme ve fare/pencere kancaları ayrı iş parçacıklarında çalışır;
+    // ana pencere ne yaparsa yapsın ayna akıcı kalır, fare de takılmaz.
+    //
+    // v1.7:
+    //  - Ayna monitörün yenilenmesine (VSync) göre çizilir: oyunlarda takılma/titreme azalır, gereksiz kare çizilmez.
+    //  - Beyaz ekran: Büyüteç bazen (kilit ekranı, UAC, uyku, oyunun ekran modu değişimi...) görüntüyü kaybedip beyaz kalır.
+    //    Ayna bunu kendisi fark edip yeniden kurulur; olmazsa programa tam onarım için haber verir.
+    //  - Görünmeyen ekrana (fiziksel monitör) düşen pencereler pencere olaylarıyla anında geri alınır.
     class VirtualMirror
     {
         // Bir sanal monitör ve görüntüsünün fiziksel monitörde çizileceği yer (monitörün kendi pikselleri)
@@ -352,7 +391,23 @@ namespace BrokenScreenResizer
         {
             public Rectangle Phys;
             public Rectangle[] Virt;
+            public Rectangle[] Areas;   // her sanal monitörün fiziksel monitördeki yeri (monitöre göre)
             public int Fps;
+        }
+
+        class RescueInfo
+        {
+            public int Count, First;
+            public bool Told;
+        }
+
+        // Çalışan aynalar: gizledikleri fiziksel monitör programın arayüzünde "ekran" olarak gösterilmez
+        static readonly List<VirtualMirror> live = new List<VirtualMirror>();
+
+        public static bool IsHidden(string gdi)
+        {
+            lock (live) foreach (var m in live) if (m.physGdi == gdi) return true;
+            return false;
         }
 
         readonly string physGdi;
@@ -360,17 +415,23 @@ namespace BrokenScreenResizer
         readonly bool fromCuts;   // bozuk ekran modu: tek hedef, yeri kesimlerden hesaplanır
         readonly Cuts cuts;
         volatile Rects rects;
-        volatile bool running, layoutChanged;
+        volatile bool running, layoutChanged, rebuildNow, rebuildSoon, locked, failed, vsyncActive, vsyncReopen;
         volatile IntPtr mirrorHwnd = IntPtr.Zero;
         string startError;
 
-        Thread renderThread, hookThread;
-        readonly ManualResetEvent renderReady = new ManualResetEvent(false), hookReady = new ManualResetEvent(false);
-        uint hookThreadId;
-        Win.LowLevelMouseProc hookProc;
-        IntPtr hook = IntPtr.Zero;
-
+        Thread renderThread, vsyncThread;
+        readonly ManualResetEvent renderReady = new ManualResetEvent(false);
+        readonly AutoResetEvent vblank = new AutoResetEvent(false);
+        HookThread hooks;
         System.Windows.Forms.Timer winTimer;
+
+        readonly Dictionary<IntPtr, RescueInfo> rescued = new Dictionary<IntPtr, RescueInfo>();
+        readonly Queue<string> notices = new Queue<string>();
+
+        // Ayna kendini onaramadı; ekran düzeni baştan kurulmalı (arayüz iş parçacığında çağrılır)
+        public event Action Failed;
+        // Kullanıcıya bildirilecek durum (arayüz iş parçacığında çağrılır)
+        public event Action<string> Notice;
 
         // Bozuk ekran modu: sağlam alan boyutundaki tek sanal monitör, monitörün sağlam alanına çizilir
         public VirtualMirror(string physGdi, string virtGdi, Cuts cuts)
@@ -392,6 +453,24 @@ namespace BrokenScreenResizer
         public Rectangle PhysRect { get { var r = rects; return r != null ? r.Phys : Rectangle.Empty; } }
         public Rectangle VirtRect { get { var r = rects; return r != null && r.Virt.Length > 0 ? r.Virt[0] : Rectangle.Empty; } }
         public int Count { get { return targets.Length; } }
+        public string PhysGdi { get { return physGdi; } }
+        public bool IsSplit { get { return !fromCuts; } }
+
+        public string[] VirtGdis
+        {
+            get
+            {
+                var a = new string[targets.Length];
+                for (int i = 0; i < a.Length; i++) a[i] = targets[i].Gdi;
+                return a;
+            }
+        }
+
+        // Her sanal monitörün fiziksel monitördeki yeri (monitörün sol üst köşesine göre)
+        public Rectangle[] PhysAreas
+        {
+            get { var r = rects; return r != null ? (Rectangle[])r.Areas.Clone() : new Rectangle[0]; }
+        }
 
         Rects ReadRects()
         {
@@ -407,7 +486,8 @@ namespace BrokenScreenResizer
                 if (v == null || !v.Attached) return null;
                 r.Virt[i] = v.Rect;
             }
-            r.Fps = Math.Max(30, Math.Min(144, p.Freq > 1 ? p.Freq : 60));
+            r.Fps = Math.Max(30, Math.Min(240, p.Freq > 1 ? p.Freq : 60));
+            r.Areas = Areas(r);
             return r;
         }
 
@@ -441,27 +521,67 @@ namespace BrokenScreenResizer
                 return e;
             }
 
-            hookThread = new Thread(HookThread);
-            hookThread.IsBackground = true;
-            hookThread.Priority = ThreadPriority.Highest;
-            hookThread.Start();
-            hookReady.WaitOne(3000);
+            vsyncThread = new Thread(VsyncThread);
+            vsyncThread.IsBackground = true;
+            vsyncThread.Priority = ThreadPriority.Highest;
+            vsyncThread.Start();
 
+            hooks = new HookThread(OnMouse, OnWindowEvent);
+            hooks.Start();
+
+            healthTimer = new System.Threading.Timer(HealthTick, null, 4000, 2000);
+
+            // Yedek denetim: olay kaçarsa pencereler en geç 1 sn içinde geri alınır
             winTimer = new System.Windows.Forms.Timer();
-            winTimer.Interval = 200;
-            winTimer.Tick += delegate { PullWindows(); };
+            winTimer.Interval = 1000;
+            winTimer.Tick += delegate { OnTimer(); };
             winTimer.Start();
             PullWindows();
 
             SystemEvents.DisplaySettingsChanged += OnDisplayChanged;
+            SystemEvents.SessionSwitch += OnSessionSwitch;
+            SystemEvents.PowerModeChanged += OnPowerChanged;
+            lock (live) live.Add(this);
             return null;
         }
 
+        // Elle onarım (tepsi menüsü): büyüteci hemen yeniden kurar
+        public void Refresh()
+        {
+            layoutChanged = true;
+            rebuildNow = true;
+        }
+
         // ---------------------------------------------------------------- Ayna (kendi iş parçacığı)
+        MirrorForm MakeForm(Rects r)
+        {
+            var f = new MirrorForm(r.Phys, r.Areas, r.Virt);
+            f.Show();
+            if (!f.Ready)
+            {
+                try { f.Close(); f.Dispose(); } catch { }
+                return null;
+            }
+            mirrorHwnd = f.Handle;
+            return f;
+        }
+
+        // Büyüteci ve ayna penceresini baştan kurar (program kapatılıp açılmış gibi)
+        MirrorForm Rebuild(MirrorForm old, ref bool mag)
+        {
+            mirrorHwnd = IntPtr.Zero;
+            if (old != null) { try { old.Close(); old.Dispose(); } catch { } }
+            if (mag) { try { VNative.MagUninitialize(); } catch { } }
+            try { mag = VNative.MagInitialize(); } catch { mag = false; }
+            var r = rects;
+            if (!mag || r == null) return null;
+            try { return MakeForm(r); } catch { return null; }
+        }
+
         void RenderThread()
         {
             MirrorForm form = null;
-            bool mag = false;
+            bool mag = false, hiRes = false;
             try
             {
                 try { mag = VNative.MagInitialize(); } catch { mag = false; }
@@ -470,64 +590,116 @@ namespace BrokenScreenResizer
                     startError = L.T("Windows Büyüteç API'si başlatılamadı.", "Could not start the Windows Magnification API.");
                     return;
                 }
-                var r = rects;
-                form = new MirrorForm(r.Phys, Areas(r), r.Virt);
-                form.Show();
-                if (!form.Ready)
+                form = MakeForm(rects);
+                if (form == null)
                 {
                     startError = L.T("Ayna penceresi oluşturulamadı.", "Could not create the mirror window.");
                     return;
                 }
-                mirrorHwnd = form.Handle;
                 renderReady.Set();
 
-                try { VNative.timeBeginPeriod(1); } catch { }
                 var sw = Stopwatch.StartNew();
-                double next = 0, nextTop = 0;
+                var waitOn = new[] { vblank.SafeWaitHandle.DangerousGetHandle() };
+                double next = 0, nextTop = 0, lastRebuild = -100000, rebuildAt = -1, missingSince = -1, nextMissing = 0;
+                int skip = 0, badFrames = 0;
+
                 while (running)
                 {
                     Application.DoEvents();
                     if (!running) break;
+                    double now = sw.Elapsed.TotalMilliseconds;
 
-                    if (layoutChanged)
+                    // ekran düzeni değişti ya da sanal monitör kayboldu
+                    if (layoutChanged || (missingSince >= 0 && now >= nextMissing))
                     {
                         layoutChanged = false;
+                        nextMissing = now + 1000;
                         var nr = ReadRects();
                         if (nr != null)
                         {
                             rects = nr;
-                            form.Bounds = nr.Phys;
-                            form.SetSources(nr.Virt);
+                            missingSince = -1;
+                            vsyncReopen = true;
+                            // yeni düzende büyüteci baştan kur; eski kaynak geçersiz kalıp beyaz ekrana yol açabilir
+                            if (rebuildAt < 0) rebuildAt = now + 1200;
                         }
+                        else if (missingSince < 0) missingSince = now;
+                    }
+                    // sanal monitör uzun süre geri gelmedi (ör. uyku sonrası sürücü yeniden başladı): tam onarım
+                    if (missingSince >= 0 && now - missingSince > 8000) { missingSince = -1; failed = true; }
+
+                    if (rebuildNow) { rebuildNow = false; rebuildAt = now; }
+                    if (rebuildSoon) { rebuildSoon = false; rebuildAt = now + 1000; }
+                    if ((rebuildAt >= 0 && now >= rebuildAt && !locked) || (form == null && now - lastRebuild >= 3000))
+                    {
+                        if (now - lastRebuild >= 1500)
+                        {
+                            rebuildAt = -1;
+                            lastRebuild = now;
+                            form = Rebuild(form, ref mag);
+                            lastRebuildTick = Environment.TickCount;
+                            skip = 0;
+                        }
+                        else rebuildAt = lastRebuild + 1500;
+                    }
+                    if (form == null)
+                    {
+                        VNative.MsgWaitForMultipleObjects(0, null, false, 100, VNative.QS_ALLINPUT);
+                        continue;
                     }
 
-                    double now = sw.Elapsed.TotalMilliseconds;
-                    if (now >= next)
+                    // ---- kare zamanlaması: monitörün yenilenmesine göre (yoksa zamanlayıcıyla)
+                    var rs = rects;
+                    double period = 1000.0 / rs.Fps;
+                    bool due;
+                    if (vsyncActive)
                     {
-                        form.Frame();
-                        double cost = sw.Elapsed.TotalMilliseconds - now;
-                        // Çizim yavaşsa kare hızını kendiliğinden düşür (sistemi kilitlemesin)
-                        next = now + Math.Max(1000.0 / rects.Fps, cost * 2);
+                        if (hiRes) { try { VNative.timeEndPeriod(1); } catch { } hiRes = false; }
+                        uint w = VNative.MsgWaitForMultipleObjects(1, waitOn, false, (uint)Math.Ceiling(period * 3), VNative.QS_ALLINPUT);
+                        due = w == MNative.WAIT_OBJECT_0 || w == MNative.WAIT_TIMEOUT;
                     }
-                    if (now >= nextTop)
+                    else
+                    {
+                        if (!hiRes) { try { VNative.timeBeginPeriod(1); hiRes = true; } catch { } }
+                        double t = sw.Elapsed.TotalMilliseconds;
+                        if (t < next)
+                        {
+                            VNative.MsgWaitForMultipleObjects(0, null, false, (uint)Math.Max(1, Math.Min(50, next - t)), VNative.QS_ALLINPUT);
+                            due = sw.Elapsed.TotalMilliseconds >= next;
+                        }
+                        else due = true;
+                    }
+                    if (!due || !running) continue;
+                    if (locked) { next = sw.Elapsed.TotalMilliseconds + 100; continue; }   // kilit ekranındayken çizmeye gerek yok
+                    if (skip > 0) { skip--; continue; }
+
+                    double t0 = sw.Elapsed.TotalMilliseconds;
+                    bool ok = form.Frame();
+                    double cost = sw.Elapsed.TotalMilliseconds - t0;
+                    // Çizim yavaşsa kare hızını kendiliğinden düşür (sistemi ve oyunu kilitlemesin)
+                    skip = cost > period ? Math.Min(3, (int)(cost / period)) : 0;
+                    next = t0 + Math.Max(period, cost * 2);
+
+                    badFrames = ok ? 0 : badFrames + 1;
+                    if (badFrames > rs.Fps * 2) { badFrames = 0; rebuildAt = t0; }
+
+                    if (t0 >= nextTop)
                     {
                         // Başka "her zaman üstte" pencereler aynanın üstüne çıkmasın
                         Win.SetWindowPos(form.Handle, VNative.HWND_TOPMOST, 0, 0, 0, 0,
                             Win.SWP_NOSIZE | VNative.SWP_NOMOVE | Win.SWP_NOACTIVATE | VNative.SWP_ASYNCWINDOWPOS);
-                        nextTop = now + 1000;
+                        nextTop = t0 + 1000;
                     }
-
-                    int wait = (int)Math.Max(0, Math.Min(50, next - sw.Elapsed.TotalMilliseconds));
-                    VNative.MsgWaitForMultipleObjects(0, null, false, (uint)wait, VNative.QS_ALLINPUT);
                 }
             }
             catch (Exception ex)
             {
                 if (startError == null && !renderReady.WaitOne(0)) startError = ex.Message;
+                else if (running) failed = true;   // ayna beklenmedik şekilde durdu: tam onarım
             }
             finally
             {
-                try { VNative.timeEndPeriod(1); } catch { }
+                if (hiRes) { try { VNative.timeEndPeriod(1); } catch { } }
                 mirrorHwnd = IntPtr.Zero;
                 if (form != null) { try { form.Close(); form.Dispose(); } catch { } }
                 if (mag) { try { VNative.MagUninitialize(); } catch { } }
@@ -535,91 +707,279 @@ namespace BrokenScreenResizer
             }
         }
 
+        // ---------------------------------------------------------------- Sağlık denetimi (iş parçacığı havuzunda)
+        // Ekrandan birkaç piksel okumak birkaç ms sürebilir; çizim iş parçacığını (ve oyunu) bekletmesin diye ayrı çalışır.
+        // Ayna bembeyaz ama sanal monitör değilse büyüteç görüntüyü kaybetmiştir: önce ayna yeniden kurulur,
+        // iki denemede düzelmezse program ekran düzenini baştan kurar.
+        System.Threading.Timer healthTimer;
+        volatile int lastRebuildTick = Environment.TickCount;
+        int healthBusy, whiteStrikes, repairs, quietUntil;
+
+        void HealthTick(object state)
+        {
+            if (Interlocked.Exchange(ref healthBusy, 1) == 1) return;
+            try
+            {
+                int now = Environment.TickCount;
+                var rs = rects;
+                if (!running || locked || rs == null || mirrorHwnd == IntPtr.Zero) return;
+                if (now - lastRebuildTick < 2500 || now - quietUntil < 0) return;
+                if (!LooksBroken(rs)) { whiteStrikes = 0; repairs = 0; return; }
+                if (++whiteStrikes < 2) return;
+                whiteStrikes = 0;
+                if (++repairs > 2)
+                {
+                    // yeniden kurmak yetmedi: program ekran düzenini baştan kursun
+                    repairs = 0;
+                    failed = true;
+                    quietUntil = now + 30000;
+                }
+                else rebuildNow = true;
+            }
+            catch { }
+            finally { Interlocked.Exchange(ref healthBusy, 0); }
+        }
+
+        static bool NearWhite(uint c)
+        {
+            return (c & 0xFF) >= 250 && ((c >> 8) & 0xFF) >= 250 && ((c >> 16) & 0xFF) >= 250;
+        }
+
+        static bool NearBlack(uint c)
+        {
+            return (c & 0xFF) <= 4 && ((c >> 8) & 0xFF) <= 4 && ((c >> 16) & 0xFF) <= 4;
+        }
+
+        static readonly float[,] Probes = { { 0.25f, 0.25f }, { 0.75f, 0.25f }, { 0.5f, 0.5f }, { 0.25f, 0.75f }, { 0.75f, 0.75f } };
+
+        // Aynanın 5 noktası saf beyaz (ya da saf siyah), sanal monitörün aynı noktaları değilse ayna bozulmuştur:
+        // Büyüteç görüntüyü kaybedince kendi arka planını (beyaz) ya da boş görüntü (siyah) gösterir.
+        // (Ekranın gerçekten beyaz/siyah olduğu durumda sanal monitör de öyledir; yanlış alarm vermez.)
+        static bool LooksBroken(Rects r)
+        {
+            IntPtr dc = MNative.GetDC(IntPtr.Zero);
+            if (dc == IntPtr.Zero) return false;
+            try
+            {
+                for (int i = 0; i < r.Areas.Length; i++)
+                {
+                    var a = r.Areas[i];
+                    if (a.Width < 40 || a.Height < 40) continue;
+                    int n = Probes.GetLength(0), mirrorWhite = 0, sourceWhite = 0, mirrorBlack = 0, sourceLit = 0;
+                    for (int k = 0; k < n; k++)
+                    {
+                        int dx = (int)(a.Width * Probes[k, 0]), dy = (int)(a.Height * Probes[k, 1]);
+                        uint m = MNative.GetPixel(dc, r.Phys.X + a.X + dx, r.Phys.Y + a.Y + dy);
+                        uint s = MNative.GetPixel(dc, r.Virt[i].X + dx, r.Virt[i].Y + dy);
+                        if (m == MNative.CLR_INVALID || s == MNative.CLR_INVALID) return false;   // okunamadı (kilit ekranı vb.)
+                        if (NearWhite(m)) mirrorWhite++;
+                        if (NearWhite(s)) sourceWhite++;
+                        if (NearBlack(m)) mirrorBlack++;
+                        // kaynakta belirgin şekilde aydınlık nokta (koyu bir oyun sahnesi siyah sayılmasın diye eşik yüksek)
+                        if ((s & 0xFF) + ((s >> 8) & 0xFF) + ((s >> 16) & 0xFF) > 90) sourceLit++;
+                    }
+                    if (mirrorWhite == n && sourceWhite < n) return true;
+                    if (mirrorBlack == n && sourceLit >= 2) return true;
+                }
+            }
+            catch { }
+            finally { MNative.ReleaseDC(IntPtr.Zero, dc); }
+            return false;
+        }
+
+        // ---------------------------------------------------------------- Dikey senkron (kendi iş parçacığı)
+        // Fiziksel monitör her yenilendiğinde aynaya "yeni kare çiz" sinyali verir. Bekleme hiç gelmezse
+        // (ör. monitör kapalı) ayna zamanlayıcıyla çizmeye devam eder; çizim iş parçacığı asla takılmaz.
+        bool OpenVsync(out MNative.D3DKMT_OPENADAPTERFROMHDC oa)
+        {
+            oa = new MNative.D3DKMT_OPENADAPTERFROMHDC();
+            IntPtr dc = IntPtr.Zero;
+            try
+            {
+                dc = MNative.CreateDC(null, physGdi, null, IntPtr.Zero);
+                if (dc == IntPtr.Zero) return false;
+                oa.hDc = dc;
+                return MNative.D3DKMTOpenAdapterFromHdc(ref oa) == 0;
+            }
+            catch { return false; }
+            finally { if (dc != IntPtr.Zero) MNative.DeleteDC(dc); }
+        }
+
+        static void CloseVsync(uint adapter)
+        {
+            try
+            {
+                var c = new MNative.D3DKMT_CLOSEADAPTER { hAdapter = adapter };
+                MNative.D3DKMTCloseAdapter(ref c);
+            }
+            catch { }
+        }
+
+        void VsyncThread()
+        {
+            var oa = new MNative.D3DKMT_OPENADAPTERFROMHDC();
+            bool open = false;
+            int errors = 0;
+            try
+            {
+                while (running)
+                {
+                    if (!open || vsyncReopen)
+                    {
+                        if (open) { CloseVsync(oa.hAdapter); open = false; }
+                        vsyncReopen = false;
+                        open = OpenVsync(out oa);
+                        if (!open)
+                        {
+                            vsyncActive = false;
+                            if (++errors > 5) return;
+                            Thread.Sleep(1000);
+                            continue;
+                        }
+                    }
+                    var w = new MNative.D3DKMT_WAITFORVERTICALBLANKEVENT { hAdapter = oa.hAdapter, hDevice = 0, VidPnSourceId = oa.VidPnSourceId };
+                    if (MNative.D3DKMTWaitForVerticalBlankEvent(ref w) != 0)
+                    {
+                        vsyncActive = false;
+                        if (++errors > 20) return;   // bu sistemde çalışmıyor: zamanlayıcı kullanılır
+                        vsyncReopen = true;
+                        Thread.Sleep(50);
+                        continue;
+                    }
+                    errors = 0;
+                    vsyncActive = true;
+                    vblank.Set();
+                }
+            }
+            catch { }
+            finally
+            {
+                vsyncActive = false;
+                if (open) CloseVsync(oa.hAdapter);
+            }
+        }
+
+        // ---------------------------------------------------------------- Sistem olayları
         void OnDisplayChanged(object s, EventArgs e)
         {
             layoutChanged = true;
         }
 
-        // ---------------------------------------------------------------- Fare kancası (kendi iş parçacığı)
-        void HookThread()
+        void OnSessionSwitch(object s, SessionSwitchEventArgs e)
         {
-            hookThreadId = VNative.GetCurrentThreadId();
-            hookProc = Hook;
-            try
+            switch (e.Reason)
             {
-                using (var pr = Process.GetCurrentProcess())
-                using (var mod = pr.MainModule)
-                    hook = Win.SetWindowsHookEx(Win.WH_MOUSE_LL, hookProc, Win.GetModuleHandle(mod.ModuleName), 0);
+                case SessionSwitchReason.SessionLock:
+                case SessionSwitchReason.ConsoleDisconnect:
+                case SessionSwitchReason.RemoteConnect:
+                    locked = true;
+                    break;
+                case SessionSwitchReason.SessionUnlock:
+                case SessionSwitchReason.ConsoleConnect:
+                case SessionSwitchReason.SessionLogon:
+                    // kilit ekranından sonra büyüteç çoğu zaman görüntüyü kaybeder: yeniden kur
+                    locked = false;
+                    layoutChanged = true;
+                    rebuildSoon = true;
+                    break;
             }
-            catch { hook = IntPtr.Zero; }
-            hookReady.Set();
-            if (hook == IntPtr.Zero) return;
-
-            VNative.MSG msg;
-            while (VNative.GetMessage(out msg, IntPtr.Zero, 0, 0) > 0)
-            {
-                VNative.TranslateMessage(ref msg);
-                VNative.DispatchMessage(ref msg);
-            }
-            Win.UnhookWindowsHookEx(hook);
-            hook = IntPtr.Zero;
         }
 
-        // Fare, sadece ayna olan fiziksel monitör alanına giremez
-        IntPtr Hook(int nCode, IntPtr wParam, IntPtr lParam)
+        void OnPowerChanged(object s, PowerModeChangedEventArgs e)
         {
-            if (nCode >= 0 && wParam.ToInt64() == Win.WM_MOUSEMOVE)
+            if (e.Mode == PowerModes.Resume)
             {
-                var r = rects;
-                var info = (Win.MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(Win.MSLLHOOKSTRUCT));
-                if (r != null && r.Phys.Contains(info.pt.X, info.pt.Y))
-                {
-                    Win.POINT cur;
-                    if (Win.GetCursorPos(out cur) && r.Phys.Contains(cur.X, cur.Y))
-                        Win.SetCursorPos(r.Virt[0].X + r.Virt[0].Width / 2, r.Virt[0].Y + r.Virt[0].Height / 2);
-                    return new IntPtr(1);
-                }
+                layoutChanged = true;
+                rebuildSoon = true;
             }
-            return Win.CallNextHookEx(hook, nCode, wParam, lParam);
+        }
+
+        void OnTimer()
+        {
+            PullWindows();
+            while (true)
+            {
+                string msg;
+                lock (notices) { if (notices.Count == 0) break; msg = notices.Dequeue(); }
+                var n = Notice;
+                if (n != null) n(msg);
+            }
+            if (failed && running)
+            {
+                failed = false;
+                var h = Failed;
+                if (h != null) h();
+            }
+        }
+
+        // ---------------------------------------------------------------- Fare (kanca iş parçacığında)
+        // Fare, sadece ayna olan fiziksel monitör alanına giremez
+        bool OnMouse(int x, int y)
+        {
+            var r = rects;
+            if (r == null || !r.Phys.Contains(x, y)) return false;
+            Win.POINT cur;
+            if (Win.GetCursorPos(out cur) && r.Phys.Contains(cur.X, cur.Y))
+                Win.SetCursorPos(r.Virt[0].X + r.Virt[0].Width / 2, r.Virt[0].Y + r.Virt[0].Height / 2);
+            return true;
         }
 
         // ---------------------------------------------------------------- Pencereleri kurtar
+        // Pencere açıldı / taşındı / öne geldi: görünmeyen ekrana düştüyse hemen geri al
+        void OnWindowEvent(IntPtr h)
+        {
+            var r = rects;
+            if (r != null && running) Rescue(h, r);
+        }
+
         // Fiziksel monitöre (aynanın arkasına, ulaşılamayan yere) düşen tüm pencereleri sanal monitöre taşır.
         // Broken Screen Resizer'ın kendi pencereleri de dahil.
         void PullWindows()
         {
             var r = rects;
             if (r == null) return;
-            IntPtr mirror = mirrorHwnd;
-            var areas = Areas(r);
             VNative.EnumWindows(delegate (IntPtr h, IntPtr l)
             {
-                try { Rescue(h, mirror, r, areas); } catch { }
+                try { Rescue(h, r); } catch { }
                 return true;
             }, IntPtr.Zero);
+
+            // kapanmış pencerelerin kayıtlarını temizle
+            lock (rescued)
+            {
+                if (rescued.Count == 0) return;
+                var dead = new List<IntPtr>();
+                foreach (var k in rescued.Keys) if (!MNative.IsWindow(k)) dead.Add(k);
+                foreach (var k in dead) rescued.Remove(k);
+            }
         }
 
-        static void Rescue(IntPtr h, IntPtr mirror, Rects all, Rectangle[] areas)
-        {
-            if (h == mirror || !VNative.IsWindowVisible(h) || Win.IsIconic(h)) return;
-            int ex = VNative.GetWindowLong(h, VNative.GWL_EXSTYLE);
-            if ((ex & (VNative.WS_EX_TOOLWINDOW | VNative.WS_EX_NOACTIVATE)) != 0) return;
-            int cloaked;
-            if (VNative.DwmGetWindowAttribute(h, VNative.DWMWA_CLOAKED, out cloaked, 4) == 0 && cloaked != 0) return;
-            var cls = new StringBuilder(64);
-            Win.GetClassName(h, cls, 64);
-            string c = cls.ToString();
-            if (c == "Shell_TrayWnd" || c == "Shell_SecondaryTrayWnd" || c == "Progman" || c == "WorkerW") return;
+        static readonly string[] SkipClasses = { "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "Progman", "WorkerW" };
 
+        void Rescue(IntPtr h, Rects all)
+        {
+            if (h == mirrorHwnd || !VNative.IsWindowVisible(h) || Win.IsIconic(h)) return;
             Win.RECT wr;
             if (!Win.GetWindowRect(h, out wr)) return;
             int cx = (wr.Left + wr.Right) / 2, cy = (wr.Top + wr.Bottom) / 2;
             if (!all.Phys.Contains(cx, cy)) return;
 
+            int ex = VNative.GetWindowLong(h, VNative.GWL_EXSTYLE);
+            if ((ex & VNative.WS_EX_NOACTIVATE) != 0) return;
+            // araç pencereleri: başlık çubuğu olanlar (ör. yüzen paneller) taşınır, menü/ipucu gibi olanlar değil
+            if ((ex & VNative.WS_EX_TOOLWINDOW) != 0 &&
+                (VNative.GetWindowLong(h, MNative.GWL_STYLE) & MNative.WS_CAPTION) != MNative.WS_CAPTION) return;
+            int cloaked;
+            if (VNative.DwmGetWindowAttribute(h, VNative.DWMWA_CLOAKED, out cloaked, 4) == 0 && cloaked != 0) return;
+            var cls = new StringBuilder(64);
+            Win.GetClassName(h, cls, 64);
+            if (Array.IndexOf(SkipClasses, cls.ToString()) >= 0) return;
+            if (!Allow(h)) return;
+
             // Pencere monitörün hangi bölgesine düştüyse o bölgenin sanal monitörüne taşınır
             int target = 0;
-            for (int i = 0; i < areas.Length; i++)
-                if (areas[i].Contains(cx - all.Phys.X, cy - all.Phys.Y)) { target = i; break; }
+            for (int i = 0; i < all.Areas.Length; i++)
+                if (all.Areas[i].Contains(cx - all.Phys.X, cy - all.Phys.Y)) { target = i; break; }
             var v = all.Virt[target];
 
             // Asenkron çağrılar: yanıt vermeyen başka bir program Broken Screen Resizer'ı kilitleyemesin
@@ -633,23 +993,53 @@ namespace BrokenScreenResizer
                 VNative.ShowWindowAsync(h, VNative.SW_MAXIMIZE);
                 return;
             }
+            // Kenarlıksız tam ekran (ör. oyun) monitörü kaplıyorsa sanal monitörü tam kaplar
             int w = Math.Min(wr.Right - wr.Left, v.Width), ht = Math.Min(wr.Bottom - wr.Top, v.Height);
             int x = v.X + (v.Width - w) / 2, y = v.Y + (v.Height - ht) / 2;
             Win.SetWindowPos(h, IntPtr.Zero, x, y, w, ht, flags);
         }
 
+        // Aynı pencere kısa sürede defalarca geri alınıyorsa (taşınamıyor ya da program onu geri itiyor)
+        // denemeyi bir süre bırakır ve kullanıcıya bir kez haber verir.
+        bool Allow(IntPtr h)
+        {
+            int now = Environment.TickCount;
+            lock (rescued)
+            {
+                RescueInfo ri;
+                if (!rescued.TryGetValue(h, out ri)) { ri = new RescueInfo { First = now }; rescued[h] = ri; }
+                if (now - ri.First > 10000) { ri.First = now; ri.Count = 0; }
+                ri.Count++;
+                if (ri.Count <= 6) return true;
+                if (!ri.Told)
+                {
+                    ri.Told = true;
+                    var sb = new StringBuilder(256);
+                    MNative.GetWindowText(h, sb, 256);
+                    string title = sb.Length > 0 ? sb.ToString() : L.T("Bir pencere", "A window");
+                    lock (notices)
+                        notices.Enqueue(string.Format(L.T(
+                            "\"{0}\" görünmeyen ekranda kaldı ve geri getirilemedi; yönetici olarak çalışıyor olabilir. Pencereyi seçip Win+Shift+← ya da → ile taşıyabilirsin.",
+                            "\"{0}\" is stuck on the hidden screen and couldn't be brought back; it may be running as administrator. Select it and press Win+Shift+← or → to move it."), title));
+                }
+                return false;
+            }
+        }
+
         public void Stop()
         {
             running = false;
+            lock (live) live.Remove(this);
             SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;
+            SystemEvents.SessionSwitch -= OnSessionSwitch;
+            SystemEvents.PowerModeChanged -= OnPowerChanged;
             if (winTimer != null) { winTimer.Stop(); winTimer.Dispose(); winTimer = null; }
-            if (hookThread != null)
-            {
-                if (hookThreadId != 0) VNative.PostThreadMessage(hookThreadId, VNative.WM_QUIT, IntPtr.Zero, IntPtr.Zero);
-                hookThread.Join(2000);
-                hookThread = null;
-            }
+            if (healthTimer != null) { healthTimer.Dispose(); healthTimer = null; }
+            if (hooks != null) { hooks.Stop(); hooks = null; }
+            vblank.Set();
             if (renderThread != null) { renderThread.Join(3000); renderThread = null; }
+            // dikey senkron iş parçacığı bir sonraki yenilemede kendiliğinden biter (beklenmez)
+            vsyncThread = null;
         }
 
         // ------------------------------------------------------------------ Kurulum adımları
