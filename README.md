@@ -157,6 +157,8 @@ Broken Screen Resizer açık kaynaklıdır; aşağıdakilerin hepsi koddan doğr
 
 Bir güvenlik sorunu bulursan lütfen [SECURITY.md](SECURITY.md)'deki adımları izle.
 
+Kod imzalama: **[Code signing policy](SECURITY.md#code-signing-policy)** (SignPath Foundation, ücretsiz).
+
 ## Güncelleme ve kaldırma
 
 **Güncelleme:** Yeni sürümün kurulum paketini çalıştırman yeterli. Paket mevcut kurulumu bulur, çalışan eski sürümü (taşınabilir kopyalar dahil) düzgünce kapatır, üzerine kurar ve ayarlarını korur. Taşınabilir sürümde yeni exe'yi açman yeterli; eski sürüm çalışıyorsa kapatılır ve yerini yenisi alır.
