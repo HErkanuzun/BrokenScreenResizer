@@ -5,9 +5,9 @@ Türkçe özet için [README](README.md#sürüm-geçmişi).
 
 > **Version numbers were reorganized with v1.0.** Earlier releases were renumbered into the 0.x range; their previous numbers are shown in brackets.
 
-## [1.7] - 2026-11-03 *(preview)*
+## [1.7] - 2026-11-05
 
-Pre-release from the `develop` branch. The stable release is still [1.01](#101---2026-10-18).
+Stable release. It also brings the Screen Multiplier (1.5) and Windows tweaks (1.6) out of preview.
 
 ### Added
 - **Display layout** (new tab): arrange the monitors inside the app instead of Windows Display settings.
@@ -147,6 +147,9 @@ First stable release.
 
 First release, named *Ekran Kurtar*: driver mode and software mode, with a 15-second confirmation for every change.
 
+[1.7]: https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v1.7
+[1.6]: https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v1.6
+[1.5]: https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v1.5
 [1.01]: https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v1.01
 [1.0]: https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v1.0
 [0.7]: https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v0.7

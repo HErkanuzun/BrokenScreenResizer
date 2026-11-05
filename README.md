@@ -27,9 +27,9 @@
 - [Kurulum](#kurulum)
 - [Kullanım](#kullanım)
 - [Yöntemler](#yöntemler)
-- [Ekran Çoğaltıcı (önizleme)](#ekran-çoğaltıcı-önizleme)
-- [Windows düzenlemeleri (önizleme)](#windows-düzenlemeleri-önizleme)
-- [Ekran düzeni (önizleme)](#ekran-düzeni-önizleme)
+- [Ekran Çoğaltıcı](#ekran-çoğaltıcı)
+- [Windows düzenlemeleri](#windows-düzenlemeleri)
+- [Ekran düzeni](#ekran-düzeni)
 - [Güvenlik ve gizlilik](#güvenlik-ve-gizlilik)
 - [Güncelleme ve kaldırma](#güncelleme-ve-kaldırma)
 - [Sorun giderme](#sorun-giderme)
@@ -77,10 +77,10 @@ Sürümdeki her dosya GitHub Actions üzerinde, bu depodaki kaynak koddan derlen
 
 ```powershell
 # 1) SHA-256 özetini SHA256SUMS.txt ile karşılaştır
-Get-FileHash .\BrokenScreenResizer-1.01-Setup.exe -Algorithm SHA256
+Get-FileHash .\BrokenScreenResizer-1.7-Setup.exe -Algorithm SHA256
 
 # 2) Dosyanın bu depodaki koddan GitHub'da derlendiğini doğrula (GitHub CLI gerekir)
-gh attestation verify .\BrokenScreenResizer-1.01-Setup.exe --repo HErkanuzun/BrokenScreenResizer
+gh attestation verify .\BrokenScreenResizer-1.7-Setup.exe --repo HErkanuzun/BrokenScreenResizer
 ```
 
 **Gereksinimler:** Windows 10 veya 11 (64 bit), .NET Framework 4.x (Windows'ta hazır gelir). Sanal monitör yöntemi için Windows 10 1903 veya üstü.
@@ -105,9 +105,7 @@ gh attestation verify .\BrokenScreenResizer-1.01-Setup.exe --repo HErkanuzun/Bro
 
 Sanal monitör yöntemi başarısız olursa program hiçbir şeyi değiştirmeden yazılım moduna geçmeyi önerir.
 
-## Ekran Çoğaltıcı (önizleme)
-
-> **Önizleme sürümü.** Bu özellik [v1.5](https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v1.5) ön sürümündedir ve henüz kararlı değildir. Kararlı sürüm **v1.01**'dir. Sorun görürsen [bildir](https://github.com/HErkanuzun/BrokenScreenResizer/issues).
+## Ekran Çoğaltıcı
 
 Büyük bir monitörü (örneğin 4K bir TV) birkaç ayrı monitöre böler. Her parça Windows'ta gerçek bir monitör olur: büyütülen pencere sadece kendi parçasını kaplar, Windows + ok tuşlarıyla parçalar arasında taşınır.
 
@@ -127,9 +125,7 @@ Büyük bir monitörü (örneğin 4K bir TV) birkaç ayrı monitöre böler. Her
 
 Bozuk ekran ayarı ile Ekran Çoğaltıcı aynı anda kullanılamaz; birinden diğerine geçmek için önce **Geri al**'a bas.
 
-## Windows düzenlemeleri (önizleme)
-
-> **Önizleme sürümü.** Bu özellik [v1.6](https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v1.6) ön sürümündedir ve henüz kararlı değildir. Kararlı sürüm **v1.01**'dir. Sorun görürsen [bildir](https://github.com/HErkanuzun/BrokenScreenResizer/issues).
+## Windows düzenlemeleri
 
 Görev çubuğunu her monitörde ayrı bir kenara yaslar: örneğin ana monitörde altta, sağdaki monitörde solda, üstteki monitörde yukarıda. İstersen bir monitörü tamamen çubuksuz bırakabilirsin.
 
@@ -142,9 +138,7 @@ Görev çubuğunu her monitörde ayrı bir kenara yaslar: örneğin ana monitör
 
 **Not:** Görev çubuğunu alt dışındaki bir kenara taşıma özelliği Windows 11'e 2026'da Windows Update ile kademeli olarak geldi. Windows'un henüz bunu desteklemiyorsa ana monitördeki çubuk altta kalır ve program bunu söyler; diğer monitörlerin ayarı yine uygulanır. Program yalnızca kullanıcıya ait görev çubuğu ayarlarını değiştirir; ilk değerleri saklar ve **Geri al**, **acil sıfırlama** ya da kaldırma sırasında geri yazar.
 
-## Ekran düzeni (önizleme)
-
-> **Önizleme sürümü.** Bu özellik v1.7 ön sürümündedir.
+## Ekran düzeni
 
 Monitörlerin masaüstündeki yerini Windows Ekran ayarlarına gitmeden, programın **Ekran düzeni** sekmesinden ayarlarsın.
 
@@ -244,7 +238,7 @@ build.bat
 Çıktı `bin\BrokenScreenResizer.exe`. `driver\package` klasöründeki hazır, imzalı sürücü paketi exe'nin içine gömülür. Sürüm paketleri (kurulum + taşınabilir ZIP + özetler) için [Inno Setup 6](https://jrsoftware.org/isinfo.php) gerekir:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Version 1.01
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Version 1.7
 ```
 
 <details>
@@ -275,7 +269,7 @@ docs/         Diğer dillerde README ve görseller
 
 Ayrıntılar: [CHANGELOG.md](CHANGELOG.md) · Tüm sürümler: [Releases](https://github.com/HErkanuzun/BrokenScreenResizer/releases)
 
-- **v1.7 (önizleme)** — Ekran düzeni: monitörlerin yerini program içinden sürükleyerek ayarla. Sanal monitör modunda beyaz kalan ayna kendini onarır; görünmeyen 3. ekrana düşen pencereler anında geri gelir. Ayna monitörün yenilenmesine (VSync) göre çizilir; oyunlarda daha akıcı. Kararlı sürüm değildir.
+- **v1.7** — Ekran düzeni: monitörlerin yerini program içinden sürükleyerek ayarla. Sanal monitör modunda beyaz kalan ayna kendini onarır; görünmeyen 3. ekrana düşen pencereler anında geri gelir. Ayna monitörün yenilenmesine (VSync) göre çizilir; oyunlarda daha akıcı. Ekran Çoğaltıcı ve Windows düzenlemeleri artık kararlı.
 - **v1.6 (önizleme)** — Windows düzenlemeleri: görev çubuğunu her monitörde istediğin kenara yasla (alt, üst, sol, sağ ya da çubuksuz). Ana monitörde Windows'un çubuğu, diğerlerinde gerekirse programın kendi çubuğu. Kararlı sürüm değildir.
 - **v1.5 (önizleme)** — Ekran Çoğaltıcı: büyük bir monitörü 8'e kadar ayrı ekrana böl. Sürükle ve it düzenleyici, şablonlar, piksel yoğunluğuna göre üç öneri. Sanal ekran sürücüsü 2.0. Kararlı sürüm değildir.
 - **v1.01** — Geniş pencerede ve tam ekranda içerik ortalanır. Ayar uygulanınca değiştirilemeyen kısımlar sisli görünür, kilit etiketi çıkar ve Geri al öne çıkar.
