@@ -103,6 +103,7 @@ namespace BrokenScreenResizer
             body.Controls.Add(page);
             Controls.Add(body);
             body.Resize += delegate { DoLayout(); };
+            body.HandleCreated += delegate { DarkScroll.Apply(body); };
             ResizeBegin += delegate { autoFit = false; };   // kullanıcı boyutlandırınca pencereye dokunma
 
             overlayTimer.Interval = 33;
@@ -505,6 +506,7 @@ namespace BrokenScreenResizer
         {
             if (inLayout || slider == null) return;
             inLayout = true;
+            bool resized = false;
             try
             {
                 Relayout();
@@ -517,11 +519,12 @@ namespace BrokenScreenResizer
                     {
                         ClientSize = new Size(ClientSize.Width, want);
                         if (Bottom > wa.Bottom) Top = Math.Max(wa.Top, wa.Bottom - Height);
-                        Relayout();
+                        resized = true;
                     }
                 }
             }
             finally { inLayout = false; }
+            if (resized) BeginInvoke(new MethodInvoker(delegate { PerformLayout(); DoLayout(); }));   // pencere oturunca yeniden
         }
 
         // Kaydırma çubuğu çıkınca/kaybolunca genişlik değişir; yerleşim oturana kadar tekrarlanır
@@ -537,6 +540,11 @@ namespace BrokenScreenResizer
                 h = LayoutAt(cw);
             }
             page.Size = new Size(cw, h);
+            // içerik pencereden kısaysa dikeyde ortala; uzunsa üstten başlayıp kaydır
+            int top = h < body.ClientSize.Height ? (body.ClientSize.Height - h) / 2 : 0;
+            var at = new Point(body.AutoScrollPosition.X, top + body.AutoScrollPosition.Y);
+            if (page.Location != at) page.Location = at;
+            DarkScroll.HideHorizontal(body);    // sayfa hep pencere genişliğinde; yatay çubuğa gerek yok
         }
 
         // Verilen genişliğe göre öğeleri yerleştirir; içerik yüksekliğini döndürür
@@ -2236,6 +2244,39 @@ namespace BrokenScreenResizer
             if (mirror != null) { StopMirror(); DisplayLayout.RestoreBackup(); Vdd.RemoveAll(); }
             overlay.Close();
             base.OnFormClosing(e);
+        }
+    }
+}
+
+namespace BrokenScreenResizer
+{
+    // Kaydırma çubuklarını koyu temaya alır (Windows 10 1809+ / 11)
+    static class DarkScroll
+    {
+        [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern int SetWindowTheme(System.IntPtr hwnd, string app, string idList);
+        [System.Runtime.InteropServices.DllImport("uxtheme.dll", EntryPoint = "#135")]
+        static extern int SetPreferredAppMode(int mode);
+        [System.Runtime.InteropServices.DllImport("uxtheme.dll", EntryPoint = "#133")]
+        static extern bool AllowDarkModeForWindow(System.IntPtr hwnd, bool allow);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern bool ShowScrollBar(System.IntPtr hwnd, int bar, bool show);
+
+        public static void Apply(System.Windows.Forms.Control c)
+        {
+            try
+            {
+                // Windows 10 1809 öncesinde bu işlevler yok; hata yakalanır, çubuk açık renkte kalır
+                SetPreferredAppMode(1);                 // AllowDark
+                AllowDarkModeForWindow(c.Handle, true);
+                SetWindowTheme(c.Handle, "DarkMode_Explorer", null);
+            }
+            catch { }
+        }
+
+        public static void HideHorizontal(System.Windows.Forms.Control c)
+        {
+            try { if (c.IsHandleCreated) ShowScrollBar(c.Handle, 0, false); } catch { }
         }
     }
 }
