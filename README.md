@@ -291,6 +291,7 @@ Windows'ta bozuk ya da sorunlu bir şeyi bulup onunla yaşamanı sağlayan küç
 | **Broken Screen Resizer** | Monitörün bozuk kısmını Windows'un dışında bırakır. |
 | [Broken Disk Resizer](https://github.com/HErkanuzun/BrokenDiskResizer) | Hard diskin bozuk sektörlerini bulur, sadece sağlam kısımları bölümler. |
 | [Broken Space Finder](https://github.com/HErkanuzun/BrokenSpaceFinder) | Diski neyin doldurduğunu bulur ve güvenle temizler. |
+| [Broken Microphone](https://github.com/HErkanuzun/BrokenMicrophone) | Telefonu ya da tableti bilgisayarın mikrofonu yapar. |
 | [Broken Hub](https://github.com/HErkanuzun/BrokenHub) | Bütün Broken araçlarını tek yerden kurar, günceller ve açar. |
 
 ## Lisans
