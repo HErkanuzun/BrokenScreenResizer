@@ -105,7 +105,7 @@ namespace BrokenScreenResizer
         public bool DriverWarp = false;
 
         // Ekran Çoğaltıcı (v1.5): bir monitörü birden fazla sanal monitöre böler
-        public int Tab = 0;                        // 0 = bozuk ekran, 1 = Ekran Çoğaltıcı, 2 = Windows düzenlemeleri
+        public int Tab = 0;                        // 0 = bozuk ekran, 1 = Ekran Çoğaltıcı, 2 = Windows düzenlemeleri, 3 = Ekran düzeni
         public string SplitMonitor = "";           // bölünen monitörün yolu
         public string SplitRegions = "";           // "x,y,w,h;..." monitör pikseli cinsinden
         public float SplitDiag = 0;                // elle girilen köşegen (inç); 0 = monitör bilgisinden
@@ -174,7 +174,7 @@ namespace BrokenScreenResizer
                         case "lockCursor": s.LockCursor = v == "1"; break;
                         case "fixWindows": s.FixWindows = v == "1"; break;
                         case "lang": s.Lang = v; break;
-                        case "tab": if (int.TryParse(v, out n) && n >= 0 && n <= 2) s.Tab = n; break;
+                        case "tab": if (int.TryParse(v, out n) && n >= 0 && n <= 3) s.Tab = n; break;
                         case "taskbarActive": s.TaskbarActive = v == "1"; break;
                         case "taskbarSides": s.TaskbarSides = v; break;
                         case "taskbarAppliedSides": s.TaskbarAppliedSides = v; break;

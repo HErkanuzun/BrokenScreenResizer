@@ -551,6 +551,13 @@ namespace BrokenScreenResizer
             var now = DateTime.Now;
             string clock = now.ToString("t"), date = now.ToString("d");
             bool refreshIcons = (tick++ % 8) == 0;   // simgeler ~2 sn'de bir yenilenir
+            // Tam ekran oyun/video açıkken simgeler yenilenmez: oyun penceresine mesaj gönderip beklemek
+            // takılmaya yol açabilir (çubuklar zaten gizli)
+            if (refreshIcons && fg != IntPtr.Zero)
+            {
+                var fs = Screen.FromHandle(fg);
+                if (fs != null && IsFullscreen(fg, fs.Bounds)) refreshIcons = false;
+            }
 
             foreach (var bar in bars)
             {

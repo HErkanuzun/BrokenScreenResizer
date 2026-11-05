@@ -73,6 +73,9 @@ namespace BrokenScreenResizer
         {
             var menu = new ContextMenuStrip();
             menu.Items.Add(L.T("Aç", "Open"), null, delegate { ShowForm(); });
+            // Ayna beyaz kaldıysa ya da donduysa: programı kapatıp açmadan baştan kurar
+            var repair = menu.Items.Add(L.T("Ekranı onar (beyaz / donmuş görüntü)", "Repair screen (white / frozen picture)"), null, delegate { form.RepairDisplay(true); });
+            menu.Opening += delegate { repair.Visible = form.MirrorActive; };
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(L.T("Programı kaldır…", "Uninstall…"), null, delegate { Uninstaller.Launch(); });
             menu.Items.Add(L.T("Çıkış", "Exit"), null, delegate { Quit(); });
@@ -100,6 +103,8 @@ namespace BrokenScreenResizer
 
     static class Program
     {
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern void DisableProcessWindowsGhosting();
+
         [STAThread]
         static void Main(string[] args)
         {
@@ -142,6 +147,9 @@ namespace BrokenScreenResizer
                 if (a == "--reset") reset = true;
             }
 
+            // Yanıt vermeyen pencerenin yerine Windows'un "hayalet" (soluk/beyaz) kopyasını koymasını kapat:
+            // ayna penceresi bir an meşgul kalsa bile görüntü beyaz bir kopyayla değişmez
+            try { DisableProcessWindowsGhosting(); } catch { }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             var saved = Settings.Load();
