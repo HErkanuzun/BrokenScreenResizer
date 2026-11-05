@@ -103,7 +103,7 @@ namespace BrokenScreenResizer
             body.Controls.Add(page);
             Controls.Add(body);
             body.Resize += delegate { DoLayout(); };
-            body.HandleCreated += delegate { DarkScroll.Apply(body); };
+            BrokenUi.GlassScroll.Attach(body, Theme.Bg, Theme.Accent);   // beyaz Windows çubuğu yerine koyu cam çubuk
             ResizeBegin += delegate { autoFit = false; };   // kullanıcı boyutlandırınca pencereye dokunma
 
             overlayTimer.Interval = 33;
