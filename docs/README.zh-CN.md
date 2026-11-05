@@ -27,14 +27,15 @@
 - [下载与安装](#下载与安装)
 - [使用方法](#使用方法)
 - [两种方式](#两种方式)
-- [屏幕倍增器（预览）](#屏幕倍增器预览)
-- [Windows 调整（预览）](#windows-调整预览)
+- [屏幕倍增器](#屏幕倍增器)
+- [Windows 调整](#windows-调整)
 - [安全与隐私](#安全与隐私)
 - [更新与卸载](#更新与卸载)
 - [常见问题](#常见问题)
 - [命令行](#命令行)
 - [从源码构建](#从源码构建)
 - [版本历史](#版本历史)
+- [Broken 系列](#broken-系列)
 - [许可证](#许可证)
 
 ## 它能做什么
@@ -75,10 +76,10 @@
 
 ```powershell
 # 1) 将 SHA-256 校验和与 SHA256SUMS.txt 对比
-Get-FileHash .\BrokenScreenResizer-1.01-Setup.exe -Algorithm SHA256
+Get-FileHash .\BrokenScreenResizer-1.7-Setup.exe -Algorithm SHA256
 
 # 2) 验证文件由 GitHub 用本仓库代码构建（需要 GitHub CLI）
-gh attestation verify .\BrokenScreenResizer-1.01-Setup.exe --repo HErkanuzun/BrokenScreenResizer
+gh attestation verify .\BrokenScreenResizer-1.7-Setup.exe --repo HErkanuzun/BrokenScreenResizer
 ```
 
 **系统要求：** Windows 10 或 11（64 位），.NET Framework 4.x（Windows 自带）。虚拟显示器方式需要 Windows 10 1903 或更高版本。
@@ -103,9 +104,7 @@ gh attestation verify .\BrokenScreenResizer-1.01-Setup.exe --repo HErkanuzun/Bro
 
 如果虚拟显示器方式失败，程序不会做任何更改，并建议改用软件模式。
 
-## 屏幕倍增器（预览）
-
-> **预览版。** 此功能位于 [v1.5](https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v1.5) 预发布版中，尚不稳定。稳定版为 **v1.01**。如遇问题请[反馈](https://github.com/HErkanuzun/BrokenScreenResizer/issues)。
+## 屏幕倍增器
 
 把一台大显示器（例如 4K 电视）分成多台独立的显示器。每个部分在 Windows 中都是一台真正的显示器：最大化的窗口只占满自己的部分，Windows + 方向键可在各部分之间移动窗口。
 
@@ -125,9 +124,7 @@ gh attestation verify .\BrokenScreenResizer-1.01-Setup.exe --repo HErkanuzun/Bro
 
 损坏屏幕设置与屏幕倍增器不能同时启用；要切换，请先点击 **还原**。
 
-## Windows 调整（预览）
-
-> **预览版。** 此功能位于 [v1.6](https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v1.6) 预发布版中，尚不稳定。稳定版为 **v1.01**。如遇问题请[反馈](https://github.com/HErkanuzun/BrokenScreenResizer/issues)。
+## Windows 调整
 
 让每台显示器的任务栏停靠在不同的边：例如主显示器在底部、右侧显示器在左边、上方显示器在顶部。也可以让某台显示器完全不显示任务栏。
 
@@ -217,7 +214,7 @@ build.bat
 输出为 `bin\BrokenScreenResizer.exe`。`driver\package` 中预先构建并已签名的驱动包会嵌入到 exe 中。构建发布包（安装程序 + 便携版 ZIP + 校验和）需要 [Inno Setup 6](https://jrsoftware.org/isinfo.php)：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Version 1.01
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Version 1.7
 ```
 
 <details>
@@ -248,6 +245,7 @@ docs/         其他语言的 README 和图片
 
 详情：[CHANGELOG.md](../CHANGELOG.md) · 所有版本：[Releases](https://github.com/HErkanuzun/BrokenScreenResizer/releases)
 
+- **v1.7** — 显示器布局：在程序内拖动即可排列显示器。虚拟显示器模式下，变白的镜像会自动修复，落到隐藏的第三个屏幕上的窗口会立即移回。镜像按显示器刷新（VSync）绘制，游戏中更流畅。屏幕倍增器和 Windows 调整现已稳定。
 - **v1.6（预览）** — Windows 调整：在每台显示器上把任务栏停靠到任意一边（下、上、左、右或不显示）。主显示器使用 Windows 任务栏，其他显示器在需要时使用本程序的任务栏。非稳定版。
 - **v1.5（预览）** — 屏幕倍增器：把一台大显示器分成最多 8 个独立屏幕。拖动与推挤编辑器、模板、基于像素密度的三项建议。虚拟显示驱动程序 2.0。非稳定版。
 - **v1.01** — 在宽窗口和全屏时内容居中显示。设置生效期间，无法更改的部分会变为雾化并标记为锁定，“还原”按钮会突出显示。
@@ -259,6 +257,16 @@ docs/         其他语言的 README 和图片
 - **v0.3** — 虚拟显示器方式。
 - **v0.2** — 新界面，4 种语言。
 - **v0.1** — 首个版本（当时名为 Ekran Kurtar）。
+
+## Broken 系列
+
+一组小工具：找出 Windows 中损坏或有问题的部分，让你照常使用。统一设计，免费开源。
+
+| | |
+|---|---|
+| **Broken Screen Resizer** | 让 Windows 不再使用显示器的损坏区域。 |
+| [Broken Disk Resizer](https://github.com/HErkanuzun/BrokenDiskResizer) | 找出硬盘坏道，只在完好的区域分区。 |
+| [Broken Space Finder](https://github.com/HErkanuzun/BrokenSpaceFinder) | 找出是什么占满了磁盘，并安全清理。 |
 
 ## 许可证
 

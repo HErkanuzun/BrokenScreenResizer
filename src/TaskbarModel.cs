@@ -92,6 +92,8 @@ namespace BrokenScreenResizer
             try { infos = DisplayConfig.GetMonitors(); } catch { infos = new List<MonitorInfo>(); }
             foreach (var s in Screen.AllScreens)
             {
+                // sanal monitör modunda aynanın çizildiği (ulaşılamayan) fiziksel monitör gösterilmez
+                if (VirtualMirror.IsHidden(s.DeviceName)) continue;
                 var m = new TbMonitor { Gdi = s.DeviceName, Bounds = s.Bounds, Primary = s.Primary, Key = s.DeviceName, Name = s.DeviceName.Replace(@"\\.\", "") };
                 foreach (var mi in infos)
                     if (mi.GdiName == s.DeviceName)
