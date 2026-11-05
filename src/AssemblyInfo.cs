@@ -20,7 +20,7 @@ namespace BrokenScreenResizer
     {
         public const string Name = "Broken Screen Resizer";
         public const string Version = "1.7";    // AssemblyInformationalVersion ile aynı; sürüm etiketi v1.7
-        public const string Channel = "preview"; // "stable" = kararlı (main), "preview" = ön sürüm (develop)
+        public const string Channel = "stable";  // "stable" = kararlı (main), "preview" = ön sürüm (develop)
         public const string Repo = "https://github.com/HErkanuzun/BrokenScreenResizer";
     }
 }
