@@ -35,6 +35,7 @@
 - [Command line](#command-line)
 - [Building from source](#building-from-source)
 - [Version history](#version-history)
+- [The Broken family](#the-broken-family)
 - [License](#license)
 
 ## What it does
@@ -259,6 +260,16 @@ Details: [CHANGELOG.md](../CHANGELOG.md) · All releases: [Releases](https://git
 - **v0.3** — Virtual monitor method.
 - **v0.2** — New interface, 4 languages.
 - **v0.1** — First release (named Ekran Kurtar).
+
+## The Broken family
+
+Small tools that find something broken or troublesome in Windows and let you live with it. Same design, free and open source.
+
+| | |
+|---|---|
+| **Broken Screen Resizer** | Keeps the broken part of a monitor out of Windows. |
+| [Broken Disk Resizer](https://github.com/HErkanuzun/BrokenDiskResizer) | Finds a hard disk's bad sectors and partitions only the healthy parts. |
+| [Broken Space Finder](https://github.com/HErkanuzun/BrokenSpaceFinder) | Finds what's filling up your disk and cleans it up safely. |
 
 ## License
 

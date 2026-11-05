@@ -35,6 +35,7 @@
 - [Komut satırı](#komut-satırı)
 - [Kaynaktan derleme](#kaynaktan-derleme)
 - [Sürüm geçmişi](#sürüm-geçmişi)
+- [Broken ailesi](#broken-ailesi)
 - [Lisans](#lisans)
 
 ## Ne işe yarar?
@@ -259,6 +260,16 @@ Ayrıntılar: [CHANGELOG.md](CHANGELOG.md) · Tüm sürümler: [Releases](https:
 - **v0.3** — Sanal monitör yöntemi.
 - **v0.2** — Yeni arayüz, 4 dil.
 - **v0.1** — İlk sürüm (adı Ekran Kurtar).
+
+## Broken ailesi
+
+Windows'ta bozuk ya da sorunlu bir şeyi bulup onunla yaşamanı sağlayan küçük araçlar. Hepsi aynı tasarım dilinde, ücretsiz ve açık kaynak.
+
+| | |
+|---|---|
+| **Broken Screen Resizer** | Monitörün bozuk kısmını Windows'un dışında bırakır. |
+| [Broken Disk Resizer](https://github.com/HErkanuzun/BrokenDiskResizer) | Hard diskin bozuk sektörlerini bulur, sadece sağlam kısımları bölümler. |
+| [Broken Space Finder](https://github.com/HErkanuzun/BrokenSpaceFinder) | Diski neyin doldurduğunu bulur ve güvenle temizler. |
 
 ## Lisans
 

@@ -35,6 +35,7 @@
 - [命令行](#命令行)
 - [从源码构建](#从源码构建)
 - [版本历史](#版本历史)
+- [Broken 系列](#broken-系列)
 - [许可证](#许可证)
 
 ## 它能做什么
@@ -259,6 +260,16 @@ docs/         其他语言的 README 和图片
 - **v0.3** — 虚拟显示器方式。
 - **v0.2** — 新界面，4 种语言。
 - **v0.1** — 首个版本（当时名为 Ekran Kurtar）。
+
+## Broken 系列
+
+一组小工具：找出 Windows 中损坏或有问题的部分，让你照常使用。统一设计，免费开源。
+
+| | |
+|---|---|
+| **Broken Screen Resizer** | 让 Windows 不再使用显示器的损坏区域。 |
+| [Broken Disk Resizer](https://github.com/HErkanuzun/BrokenDiskResizer) | 找出硬盘坏道，只在完好的区域分区。 |
+| [Broken Space Finder](https://github.com/HErkanuzun/BrokenSpaceFinder) | 找出是什么占满了磁盘，并安全清理。 |
 
 ## 许可证
 
