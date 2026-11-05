@@ -27,14 +27,15 @@
 - [Download and install](#download-and-install)
 - [How to use](#how-to-use)
 - [Methods](#methods)
-- [Screen Multiplier (preview)](#screen-multiplier-preview)
-- [Windows tweaks (preview)](#windows-tweaks-preview)
+- [Screen Multiplier](#screen-multiplier)
+- [Windows tweaks](#windows-tweaks)
 - [Security and privacy](#security-and-privacy)
 - [Updating and uninstalling](#updating-and-uninstalling)
 - [Troubleshooting](#troubleshooting)
 - [Command line](#command-line)
 - [Building from source](#building-from-source)
 - [Version history](#version-history)
+- [The Broken family](#the-broken-family)
 - [License](#license)
 
 ## What it does
@@ -75,10 +76,10 @@ Every release file is built by GitHub Actions from the source code in this repos
 
 ```powershell
 # 1) Compare the SHA-256 checksum with SHA256SUMS.txt
-Get-FileHash .\BrokenScreenResizer-1.01-Setup.exe -Algorithm SHA256
+Get-FileHash .\BrokenScreenResizer-1.7-Setup.exe -Algorithm SHA256
 
 # 2) Verify that GitHub built the file from this repository (requires the GitHub CLI)
-gh attestation verify .\BrokenScreenResizer-1.01-Setup.exe --repo HErkanuzun/BrokenScreenResizer
+gh attestation verify .\BrokenScreenResizer-1.7-Setup.exe --repo HErkanuzun/BrokenScreenResizer
 ```
 
 **Requirements:** Windows 10 or 11 (64-bit) and .NET Framework 4.x (included with Windows). The virtual monitor method needs Windows 10 1903 or later.
@@ -103,9 +104,7 @@ With **Start with Windows** turned on, your setup is applied automatically at ev
 
 If the virtual monitor method fails, the app changes nothing and offers to use software mode instead.
 
-## Screen Multiplier (preview)
-
-> **Preview release.** This feature is in the [v1.5](https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v1.5) pre-release and is not stable yet. The stable release is **v1.01**. If something goes wrong, please [report it](https://github.com/HErkanuzun/BrokenScreenResizer/issues).
+## Screen Multiplier
 
 Splits a large monitor (for example a 4K TV) into several separate monitors. Each part becomes a real monitor in Windows: a maximized window fills only its own part, and Windows + arrow keys move windows between parts.
 
@@ -125,9 +124,7 @@ Splits a large monitor (for example a 4K TV) into several separate monitors. Eac
 
 The broken-screen setting and Screen Multiplier can't be active at the same time; press **Revert** first to switch from one to the other.
 
-## Windows tweaks (preview)
-
-> **Preview release.** This feature is in the [v1.6](https://github.com/HErkanuzun/BrokenScreenResizer/releases/tag/v1.6) pre-release and is not stable yet. The stable release is **v1.01**. If something goes wrong, please [report it](https://github.com/HErkanuzun/BrokenScreenResizer/issues).
+## Windows tweaks
 
 Docks the taskbar to a different edge on each monitor: for example at the bottom of the main monitor, on the left of the monitor to the right and at the top of the monitor above. You can also leave a monitor with no taskbar at all.
 
@@ -217,7 +214,7 @@ build.bat
 The output is `bin\BrokenScreenResizer.exe`. The prebuilt, signed driver package in `driver\package` is embedded in the exe. Release packages (installer + portable ZIP + checksums) need [Inno Setup 6](https://jrsoftware.org/isinfo.php):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Version 1.01
+powershell -ExecutionPolicy Bypass -File scripts\package.ps1 -Version 1.7
 ```
 
 <details>
@@ -248,6 +245,7 @@ docs/         READMEs in other languages and images
 
 Details: [CHANGELOG.md](../CHANGELOG.md) · All releases: [Releases](https://github.com/HErkanuzun/BrokenScreenResizer/releases)
 
+- **v1.7** — Display layout: arrange your monitors by dragging them inside the app. In virtual monitor mode a mirror that turns white repairs itself, and windows that land on the hidden third screen come back at once. The mirror is drawn in sync with the monitor (VSync), smoother in games. Screen Multiplier and Windows tweaks are now stable.
 - **v1.6 (preview)** — Windows tweaks: dock the taskbar to any edge on each monitor (bottom, top, left, right or none). The Windows taskbar on the main monitor, the app's own taskbar on the others when needed. Not a stable release.
 - **v1.5 (preview)** — Screen Multiplier: split a large monitor into up to 8 separate screens. Drag-and-push editor, templates, three recommendations based on pixel density. Virtual display driver 2.0. Not a stable release.
 - **v1.01** — Content is centered in wide and fullscreen windows. While a setting is applied, the parts that can't be changed are faded and marked as locked, and Revert is highlighted.
@@ -259,6 +257,16 @@ Details: [CHANGELOG.md](../CHANGELOG.md) · All releases: [Releases](https://git
 - **v0.3** — Virtual monitor method.
 - **v0.2** — New interface, 4 languages.
 - **v0.1** — First release (named Ekran Kurtar).
+
+## The Broken family
+
+Small tools that find something broken or troublesome in Windows and let you live with it. Same design, free and open source.
+
+| | |
+|---|---|
+| **Broken Screen Resizer** | Keeps the broken part of a monitor out of Windows. |
+| [Broken Disk Resizer](https://github.com/HErkanuzun/BrokenDiskResizer) | Finds a hard disk's bad sectors and partitions only the healthy parts. |
+| [Broken Space Finder](https://github.com/HErkanuzun/BrokenSpaceFinder) | Finds what's filling up your disk and cleans it up safely. |
 
 ## License
 

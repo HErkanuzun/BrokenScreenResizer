@@ -60,6 +60,16 @@ namespace BrokenScreenResizer
         string tbWarn;
         bool TaskbarTab { get { return cfg.Tab == 2; } }
 
+        // Ekran düzeni (v1.7)
+        ArrangeCanvas arCanvas;
+        Label secArrange, lblArrange;
+        FlatButton btnPrimary;
+        InfoCard arInfo;
+        List<ArrangeMon> arMons = new List<ArrangeMon>();
+        bool arDirty;
+        bool ArrangeTab { get { return cfg.Tab == 3; } }
+        DateTime lastAutoRepair = DateTime.MinValue;
+
         // Duyarlı yerleşim: içerik kaydırılabilir bir sayfada durur; pencere küçülünce
         // "Nasıl çalışır" paneli gizlenir, öğeler alt alta dizilir, gerekirse kaydırma çubuğu çıkar.
         readonly BufferedPanel body = new BufferedPanel(), page = new BufferedPanel();
@@ -218,13 +228,14 @@ namespace BrokenScreenResizer
 
             // sekmeler: bozuk ekran / Ekran Çoğaltıcı
             segTab = Add(new Seg());
-            segTab.Items = new[] { L.T("Bozuk ekran", "Broken screen"), L.T("Ekran Çoğaltıcı", "Screen Multiplier"), L.T("Windows düzenlemeleri", "Windows tweaks") };
+            segTab.Items = new[] { L.T("Bozuk ekran", "Broken screen"), L.T("Ekran Çoğaltıcı", "Screen Multiplier"), L.T("Windows düzenlemeleri", "Windows tweaks"), L.T("Ekran düzeni", "Display layout") };
             segTab.Selected = cfg.Tab;
             segTab.Changed += delegate (int i)
             {
                 cfg.Tab = i;
                 cfg.Save();
                 editing = false;
+                arDirty = false;   // uygulanmamış ekran düzeni değişikliği sekme değişince bırakılır
                 overlay.Hide();
                 RefreshMonitors();
                 if (explainer != null) explainer.Running = Visible && twoColumns && cfg.Tab == 0;
@@ -322,6 +333,7 @@ namespace BrokenScreenResizer
 
             BuildSplitUi();
             BuildTaskbarUi();
+            BuildArrangeUi();
 
             explainer = Add(new Explainer());
             Explain(preview, 0); Explain(lblHint, 0); Explain(slider, 0); Explain(segEdge, 0); Explain(btnMinus, 0); Explain(btnPlus, 0);
@@ -442,6 +454,40 @@ namespace BrokenScreenResizer
                     "When the app closes, the Windows taskbar comes back on the other monitors. Revert restores everything to how it was before the app.") };
         }
 
+        // Ekran düzeni sekmesinin öğeleri
+        void BuildArrangeUi()
+        {
+            secArrange = Section(L.T("Monitörlerin yeri", "Monitor positions"));
+            arCanvas = Add(new ArrangeCanvas());
+            arCanvas.PrimaryWord = L.T("Ana", "Main");
+            arCanvas.Hint = L.T("Bir ekranı sürükle: yakındaki ekranın kenarına yapışır", "Drag a screen: it snaps to the edge of the nearest one");
+            arCanvas.Changed += delegate { arDirty = true; UpdateState(); };
+            arCanvas.SelectionChanged += delegate { UpdateState(); };
+
+            btnPrimary = Add(new FlatButton(L.T("Ana ekran yap", "Make main display"), BtnKind.Secondary));
+            btnPrimary.Click += delegate { MakePrimary(); };
+
+            lblArrange = new Label();
+            lblArrange.ForeColor = Theme.Sub;
+            lblArrange.Font = new Font(Font.FontFamily, 8.5f);
+            lblArrange.AutoSize = true;
+            page.Controls.Add(lblArrange);
+
+            arInfo = Add(new InfoCard());
+            arInfo.Title = L.T("Nasıl çalışır?", "How it works");
+            arInfo.Lines = new[] {
+                L.T("Ekranları Windows'un Ekran ayarlarındaki gibi sürükleyerek yerleştir. Bıraktığın yerde en yakın ekranın kenarına yapışır; üst, alt ya da ortası yakınsa hizalanır.",
+                    "Drag the screens into place, like in Windows Display settings. A screen snaps to the edge of the nearest one where you drop it, and lines up with its top, bottom or middle when close."),
+                L.T("Ekranlar üst üste binemez ve en az bir kenarla birbirine değer; fare ekranlar arasında bu kenarlardan geçer.",
+                    "Screens can't overlap and always touch at least one other screen; the mouse moves between screens across those edges."),
+                L.T("Bir ekrana tıklayıp \"Ana ekran yap\"a basarsan Windows'un ana ekranı (Başlat, sistem tepsisi, yeni pencereler) o olur.",
+                    "Click a screen and press \"Make main display\" to make it the Windows main display (Start, system tray, new windows)."),
+                L.T("Sanal monitör ya da Ekran Çoğaltıcı açıkken bozuk monitörün kendisi (görüntünün kopyalandığı, ulaşılamayan ekran) burada gösterilmez; program onu hep diğer ekranların altına alır. Ekran Çoğaltıcı'nın ekranları birlikte taşınır.",
+                    "While virtual monitor mode or Screen Multiplier is on, the broken monitor itself (the unreachable screen the picture is copied to) isn't shown here; the app always keeps it below the other screens. Screen Multiplier's screens move together."),
+                L.T("Uygula'dan sonra 15 saniye içinde onaylamazsan eski düzen geri gelir.",
+                    "If you don't confirm within 15 seconds after Apply, the old layout comes back.") };
+        }
+
         static string[] TierNames()
         {
             return new[] { L.T("Kalite kaybı olmadan", "No quality loss"), L.T("Önerilen", "Recommended"), L.T("En fazla", "Maximum") };
@@ -522,9 +568,9 @@ namespace BrokenScreenResizer
 
             segTab.SetBounds(x0, y - P(4), w, P(40)); y += P(40) + P(16);
 
-            bool split = SplitTab, tb = TaskbarTab;
-            secMonitor.Visible = segMonitor.Visible = !tb;
-            if (!tb)
+            bool split = SplitTab, tb = TaskbarTab, ar = ArrangeTab;
+            secMonitor.Visible = segMonitor.Visible = !tb && !ar;
+            if (!tb && !ar)
             {
                 secMonitor.Location = new Point(x0, y); y += P(22);
                 segMonitor.SetBounds(x0, y, w, P(38)); y += P(38) + P(16);
@@ -532,13 +578,16 @@ namespace BrokenScreenResizer
 
             foreach (Control c in new Control[] { preview, lblHint, secEdge, segEdge, secArea, btnMinus, btnPlus, lblValue, slider, tPreview,
                                                   secMethod, cardSoft, cardVirtual })
-                c.Visible = !split && !tb;
+                c.Visible = !split && !tb && !ar;
             foreach (Control c in new Control[] { canvas, btnAdd, btnRemove, lblLimit, secDist, stats, secTemplates, picker, advice })
                 c.Visible = split;
             foreach (Control c in new Control[] { secTaskbar, tbCanvas, secSide, segSide, secAlign, segAlign, tLabels, tbInfo })
                 c.Visible = tb;
+            foreach (Control c in new Control[] { secArrange, arCanvas, btnPrimary, lblArrange, arInfo })
+                c.Visible = ar;
             if (split) y = LayoutSplit(x0, w, y, ox + leftW - P(6), ew);
             else if (tb) y = LayoutTaskbar(x0, w, y, ox + leftW - P(6), ew);
+            else if (ar) y = LayoutArrange(x0, w, y, ox + leftW - P(6), ew);
             else
             {
 
@@ -636,6 +685,38 @@ namespace BrokenScreenResizer
             if (twoColumns && tab0) explainer.SetBounds(ox + leftW - P(6), P(22), ew, y - P(44));
             if (twoColumns && split) y = Math.Max(y, advice.Bottom + P(22));
             if (twoColumns && tb) y = Math.Max(y, tbInfo.Bottom + P(22));
+            if (twoColumns && ar) y = Math.Max(y, arInfo.Bottom + P(22));
+            return y;
+        }
+
+        // Ekran düzeni sekmesinin orta kısmı; sağ sütun varsa açıklama kartı oraya
+        int LayoutArrange(int x0, int w, int y, int rightX, int ew)
+        {
+            secArrange.Location = new Point(x0, y); y += P(22);
+            int ch = Math.Max(P(240), Math.Min(P(440), w * 56 / 100));
+            if (body.ClientSize.Height < P(640)) ch = Math.Min(ch, P(290));
+            arCanvas.SetBounds(x0, y, w, ch); y += ch + P(12);
+
+            int bw = TextRenderer.MeasureText(btnPrimary.Text, btnPrimary.Font).Width + P(30);
+            btnPrimary.SetBounds(x0, y, bw, P(36));
+            int rest = w - bw - P(14);
+            if (rest >= P(220))
+            {
+                lblArrange.MaximumSize = new Size(rest, 0);
+                int lh = lblArrange.GetPreferredSize(new Size(rest, 0)).Height;
+                lblArrange.Location = new Point(x0 + bw + P(14), y + Math.Max(0, (P(36) - lh) / 2));
+                y += Math.Max(P(36), lh) + P(18);
+            }
+            else
+            {
+                y += P(36) + P(8);
+                lblArrange.MaximumSize = new Size(w, 0);
+                lblArrange.Location = new Point(x0, y);
+                y += lblArrange.GetPreferredSize(new Size(w, 0)).Height + P(16);
+            }
+
+            if (twoColumns) arInfo.SetBounds(rightX, P(22), ew, arInfo.Measure(ew));
+            else { arInfo.SetBounds(x0, y, w, arInfo.Measure(w)); y += arInfo.Height + P(18); }
             return y;
         }
 
@@ -757,6 +838,11 @@ namespace BrokenScreenResizer
                 UpdateTaskbar();
                 return;
             }
+            if (ArrangeTab)
+            {
+                UpdateArrange();
+                return;
+            }
             if (SplitTab)
             {
                 if (m != null && !cfg.Active && cfg.SplitMonitor != m.DevicePath) { cfg.SplitMonitor = m.DevicePath; cfg.Save(); }
@@ -765,6 +851,91 @@ namespace BrokenScreenResizer
             }
             if (m != null && !cfg.Active) cfg.MonitorPath = m.DevicePath;
             UpdateRange();
+        }
+
+        // ------------------------------------------------------------------ Ekran düzeni: değerler
+        // Uygulanmamış değişiklik yoksa çizim Windows'taki güncel düzene göre yenilenir
+        void UpdateArrange()
+        {
+            if (!arDirty && !arCanvas.Dragging)
+            {
+                arMons = DisplayArrange.Load(mirror);
+                arCanvas.Monitors = arMons;
+            }
+            UpdateState();
+        }
+
+        void MakePrimary()
+        {
+            var sel = arCanvas.SelectedMonitor;
+            if (sel == null || sel.Primary || busy) return;
+            // Ekran Çoğaltıcı ekranlarından biri seçildiyse ana ekran o olur
+            foreach (var m in arMons) m.Primary = m == sel;
+            arDirty = true;
+            arCanvas.Invalidate();
+            UpdateState();
+        }
+
+        void UpdateArrangeStatus()
+        {
+            var sel = arCanvas.SelectedMonitor;
+            lblArrange.Text = sel == null ? "" :
+                string.Format(L.T("Seçili: {0} · {1}  ·  {2} × {3}", "Selected: {0} · {1}  ·  {2} × {3}"), sel.Number, sel.Name, sel.Rect.Width, sel.Rect.Height) +
+                (sel.Primary ? "  (" + L.T("ana", "main") + ")" : "");
+            string hidden = mirror != null
+                ? " " + L.T("Bozuk monitörün görünmeyen kopyası listelenmez; uygulanınca program onu kendisi yerleştirir.",
+                            "The broken monitor's hidden copy isn't listed; the app places it by itself when you apply.")
+                : "";
+            if (arDirty)
+            {
+                status.Kind = StatusKind.Warn;
+                status.Text = L.T("Değişiklikler henüz uygulanmadı; Uygula'ya bas. Geri al, değişiklikleri bırakır.",
+                                  "Changes aren't applied yet; press Apply. Revert discards them.") + hidden;
+            }
+            else
+            {
+                status.Kind = StatusKind.Idle;
+                status.Text = (arMons.Count > 1
+                    ? L.T("Ekranları sürükleyerek yerleştir, sonra Uygula'ya bas.", "Drag the screens into place, then press Apply.")
+                    : L.T("Yerleştirilecek başka ekran yok.", "There are no other screens to arrange.")) + hidden;
+            }
+            status.Invalidate();
+        }
+
+        void ApplyArrange()
+        {
+            if (!arDirty || arMons.Count == 0) return;
+            busy = true;
+            UpdateState();
+            Cursor = Cursors.WaitCursor;
+            try
+            {
+                var before = DisplayLayout.Capture();
+                int r = DisplayArrange.Apply(arMons, mirror);
+                if (r != 0)
+                {
+                    DisplayArrange.Restore(before);
+                    MsgDialog.Show(this, L.T("Ekran düzeni değiştirilemedi: ", "Could not change the display layout: ") + DisplayLayout.Err(r), true);
+                    return;
+                }
+                Pause(700);
+                BringIntoView();
+                bool keep;
+                using (var dlg = new ConfirmDialog(Screen.PrimaryScreen.WorkingArea, L.T(
+                    "Ekranlar istediğin gibi yerleşti mi?\n\nOnaylamazsan {0} saniye içinde eski düzene dönecek.",
+                    "Are the screens arranged the way you want?\n\nReverting to the old layout in {0} seconds unless you confirm.")))
+                    keep = dlg.ShowDialog() == DialogResult.OK;
+                if (keep) DisplayArrange.UpdateBackup(mirror);
+                else DisplayArrange.Restore(before);
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+                busy = false;
+                arDirty = false;
+                RefreshMonitors();
+                BringIntoView();
+            }
         }
 
         // ------------------------------------------------------------------ Windows düzenlemeleri: değerler
@@ -1260,6 +1431,19 @@ namespace BrokenScreenResizer
                 btnRevert.Kind = BtnKind.Secondary;
                 UpdateTaskbarStatus();
             }
+            else if (ArrangeTab)
+            {
+                // ekran düzeni diğer ayarlardan bağımsızdır; sanal monitör açıkken de değiştirilebilir
+                arCanvas.Enabled = !busy;
+                arCanvas.Fogged = false;
+                var sel = arCanvas.SelectedMonitor;
+                btnPrimary.Enabled = !busy && sel != null && !sel.Primary;
+                btnApply.Enabled = !busy && arDirty;
+                btnRevert.Enabled = !busy && arDirty;
+                btnApply.Kind = BtnKind.Primary;
+                btnRevert.Kind = BtnKind.Secondary;
+                UpdateArrangeStatus();
+            }
             else if (cfg.Active && cfg.ActiveMode == Mode.Driver)
             {
                 // v0.6 ve öncesinden kalan sürücü modu ayarı
@@ -1368,6 +1552,11 @@ namespace BrokenScreenResizer
             if (TaskbarTab)
             {
                 ApplyTaskbar();
+                return;
+            }
+            if (ArrangeTab)
+            {
+                ApplyArrange();
                 return;
             }
             if (SplitTab)
@@ -1516,6 +1705,7 @@ namespace BrokenScreenResizer
                 OfferSoftware(err, null);
                 return;
             }
+            Wire(mirror);
 
             if (Confirm(m.GdiName))
             {
@@ -1619,6 +1809,7 @@ namespace BrokenScreenResizer
                 Vdd.RemoveAll();
                 return err;
             }
+            Wire(mm);
             mir = mm;
             return null;
         }
@@ -1732,6 +1923,13 @@ namespace BrokenScreenResizer
             if (TaskbarTab)
             {
                 RevertTaskbar();
+                return;
+            }
+            if (ArrangeTab)
+            {
+                // uygulanmamış değişiklikleri bırak
+                arDirty = false;
+                UpdateArrange();
                 return;
             }
             if (cfg.Active && cfg.ActiveMode == Mode.Software) StopShield();
@@ -1893,6 +2091,55 @@ namespace BrokenScreenResizer
             mirror = new VirtualMirror(phys, vg, cfg.Cuts);
             string err = mirror.Start();
             if (err != null) { mirror = null; DisplayLayout.RestoreBackup(); Raise(err); }
+            else Wire(mirror);
+        }
+
+        // Aynanın bildirimleri: kendini onaramazsa ekran düzeni baştan kurulur (programı kapatıp açmak gibi)
+        void Wire(VirtualMirror m)
+        {
+            m.Notice += delegate (string msg) { Raise(msg); };
+            m.Failed += delegate
+            {
+                if (m != mirror) return;
+                // art arda olmasın: kendiliğinden onarım en fazla 2 dakikada bir
+                if ((DateTime.Now - lastAutoRepair).TotalMinutes < 2)
+                {
+                    Raise(L.T("Ekran görüntüsü kayboldu. Tepsi simgesine sağ tıklayıp \"Ekranı onar\"ı seçebilirsin.",
+                              "The screen image was lost. Right-click the tray icon and choose \"Repair screen\"."));
+                    return;
+                }
+                lastAutoRepair = DateTime.Now;
+                RepairDisplay(false);
+            };
+        }
+
+        public bool MirrorActive { get { return mirror != null; } }
+
+        // Beyaz/donmuş ayna ya da kaybolan sanal monitör için tam onarım: ekran düzenini geri yükler,
+        // sanal monitörleri kapatıp yeniden açar ve aynayı baştan başlatır.
+        public void RepairDisplay(bool manual)
+        {
+            if (busy || !cfg.Active || (cfg.ActiveMode != Mode.Virtual && cfg.ActiveMode != Mode.Split)) return;
+            busy = true;
+            Cursor = Cursors.WaitCursor;
+            try
+            {
+                StopMirror();
+                DisplayLayout.RestoreBackup();
+                Vdd.RemoveAll();
+                Pause(800);
+                monitors = DisplayConfig.GetMonitors();
+                try { monitors.RemoveAll(x => Vdd.IsOurs(x.GdiName)); } catch { }
+                RestoreDisplay();
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+                busy = false;
+                RefreshMonitors();
+            }
+            if (!manual && mirror != null)
+                Raise(L.T("Ekran görüntüsü kaybolmuştu; otomatik olarak yeniden kuruldu.", "The screen image was lost; it was set up again automatically."));
         }
 
         string FindPhysGdi()
