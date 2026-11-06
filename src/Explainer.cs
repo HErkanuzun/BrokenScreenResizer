@@ -120,10 +120,9 @@ namespace BrokenScreenResizer
         // ------------------------------------------------------------------ çizim
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = Theme.Prep(e, BackColor);
+            var g = Theme.Prep(e, this);
             var card = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
-            Theme.Fill(g, card, Theme.P(16), Theme.Card);
-            Theme.Stroke(g, card, Theme.P(16), Theme.Border, 1);
+            Glass.Card(g, card, Theme.P(16), Color.Empty);
 
             using (var sec = new Font(Font.FontFamily, 8f, FontStyle.Bold))
                 Theme.Draw(g, L.T("NASIL ÇALIŞIR?", "HOW IT WORKS"), sec, new RectangleF(Pad, Theme.P(20), Width - Pad * 2, Theme.P(20)),

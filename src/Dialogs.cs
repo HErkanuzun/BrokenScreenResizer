@@ -42,8 +42,29 @@ namespace BrokenScreenResizer
     }
 
     // Koyu temalı küçük pencere tabanı
-    class DarkDialog : Form
+    class DarkDialog : Form, ISurface
     {
+        protected readonly TitleBar titleBar = new TitleBar();
+        protected override void WndProc(ref Message m) { if (!Frame.Handle(this, ref m, titleBar.Height)) base.WndProc(ref m); }
+        protected override void OnActivated(EventArgs e) { base.OnActivated(e); titleBar.Invalidate(); }
+        protected override void OnDeactivate(EventArgs e) { base.OnDeactivate(e); titleBar.Invalidate(); }
+        public void PaintSurface(Graphics g, Rectangle r) { Glass.Backdrop(g, ClientSize, Point.Empty, r); }
+        protected override void OnPaintBackground(PaintEventArgs e) { PaintSurface(e.Graphics, e.ClipRectangle); }
+        protected override void OnControlAdded(ControlEventArgs e) { base.OnControlAdded(e); Glass.SeeThrough(e.Control); }
+
+        // alt sınıflar içeriği sabit yerlere koyar: açılırken hepsi başlık çubuğu kadar aşağı kayar
+        protected override void OnLoad(EventArgs e)
+        {
+            titleBar.MinMax = false;
+            titleBar.Dock = DockStyle.Top;
+            int h = titleBar.Height;
+            SuspendLayout();
+            foreach (Control c in Controls) if (c.Dock == DockStyle.None) c.Top += h;
+            ClientSize = new Size(ClientSize.Width, ClientSize.Height + h);
+            Controls.Add(titleBar);
+            ResumeLayout();
+            base.OnLoad(e);
+        }
         public DarkDialog()
         {
             Text = "Broken Screen Resizer";
@@ -53,6 +74,7 @@ namespace BrokenScreenResizer
             MinimizeBox = false;
             ShowInTaskbar = false;
             BackColor = Theme.Bg;
+            DoubleBuffered = true;
             ForeColor = Theme.Text;
             Font = new Font(L.FontName, 9.5f);
             TopMost = true;
@@ -61,7 +83,7 @@ namespace BrokenScreenResizer
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            Theme.DarkTitle(this);
+            Frame.Apply(this);
         }
 
         protected Label MakeLabel(string text, float size, bool bold, Color color, int width)
@@ -70,7 +92,7 @@ namespace BrokenScreenResizer
             l.Text = text;
             l.Font = new Font(Font.FontFamily, size, bold ? FontStyle.Bold : FontStyle.Regular);
             l.ForeColor = color;
-            l.BackColor = Theme.Bg;
+            l.BackColor = Color.Transparent;
             l.AutoSize = true;
             l.MaximumSize = new Size(width, 0);
             Controls.Add(l);

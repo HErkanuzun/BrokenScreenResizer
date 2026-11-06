@@ -7,8 +7,15 @@ using Microsoft.Win32;
 
 namespace BrokenScreenResizer
 {
-    class MainForm : Form
+    class MainForm : Form, ISurface
     {
+        readonly TitleBar titleBar = new TitleBar();
+        protected override void WndProc(ref Message m) { if (!Frame.Handle(this, ref m, titleBar.Height)) base.WndProc(ref m); }
+        protected override void OnActivated(EventArgs e) { base.OnActivated(e); titleBar.Invalidate(); }
+        public void PaintSurface(Graphics g, Rectangle r) { Glass.Backdrop(g, ClientSize, Point.Empty, r); }
+        protected override void OnPaintBackground(PaintEventArgs e) { PaintSurface(e.Graphics, e.ClipRectangle); }
+        protected override void OnResize(EventArgs e) { base.OnResize(e); Invalidate(true); }
+        protected override void OnDeactivate(EventArgs e) { base.OnDeactivate(e); titleBar.Invalidate(); }
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         const string RunName = "BrokenScreenResizer";
         static readonly Edge[] EdgeOrder = { Edge.Left, Edge.Right, Edge.Top, Edge.Bottom };
@@ -104,6 +111,9 @@ namespace BrokenScreenResizer
             Controls.Add(body);
             body.Resize += delegate { DoLayout(); };
             BrokenUi.GlassScroll.Attach(body, Theme.Bg, Theme.Accent);   // beyaz Windows çubuğu yerine koyu cam çubuk
+            BrokenUi.GlassScroll.Under = Glass.PaintUnder;
+            titleBar.Dock = DockStyle.Top;
+            Controls.Add(titleBar);
             ResizeBegin += delegate { autoFit = false; };   // kullanıcı boyutlandırınca pencereye dokunma
 
             overlayTimer.Interval = 33;
@@ -127,7 +137,7 @@ namespace BrokenScreenResizer
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            Theme.DarkTitle(this);
+            Frame.Apply(this);
         }
 
         static int P(float v) { return Theme.P(v); }
@@ -177,7 +187,7 @@ namespace BrokenScreenResizer
             var l = new Label();
             l.Text = Upper(text);
             l.ForeColor = Theme.Sub;
-            l.BackColor = Theme.Bg;
+            l.BackColor = Color.Transparent;
             l.Font = new Font(Font.FontFamily, 8f, FontStyle.Bold);
             l.AutoSize = true;
             page.Controls.Add(l);
@@ -198,7 +208,7 @@ namespace BrokenScreenResizer
 
             logo = new PictureBox();
             logo.SizeMode = PictureBoxSizeMode.Zoom;
-            logo.BackColor = Theme.Bg;
+            logo.BackColor = Color.Transparent;
             logo.Image = Theme.Logo();
             page.Controls.Add(logo);
 
