@@ -7,8 +7,16 @@ using Microsoft.Win32;
 
 namespace BrokenScreenResizer
 {
-    class MainForm : Form
+    class MainForm : Form, ISurface
     {
+        readonly TitleBar titleBar = new TitleBar();
+        readonly AppHeader header = new AppHeader();
+        protected override void WndProc(ref Message m) { if (!Frame.Handle(this, ref m, titleBar.Height + header.Height)) base.WndProc(ref m); }
+        protected override void OnActivated(EventArgs e) { base.OnActivated(e); titleBar.Invalidate(); }
+        public void PaintSurface(Graphics g, Rectangle r) { Glass.Backdrop(g, ClientSize, Point.Empty, r); }
+        protected override void OnPaintBackground(PaintEventArgs e) { PaintSurface(e.Graphics, e.ClipRectangle); }
+        protected override void OnResize(EventArgs e) { base.OnResize(e); Invalidate(true); }
+        protected override void OnDeactivate(EventArgs e) { base.OnDeactivate(e); titleBar.Invalidate(); }
         const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         const string RunName = "BrokenScreenResizer";
         static readonly Edge[] EdgeOrder = { Edge.Left, Edge.Right, Edge.Top, Edge.Bottom };
@@ -103,6 +111,13 @@ namespace BrokenScreenResizer
             body.Controls.Add(page);
             Controls.Add(body);
             body.Resize += delegate { DoLayout(); };
+            BrokenUi.GlassScroll.Attach(body, Theme.Bg, Theme.Accent);   // beyaz Windows çubuğu yerine koyu cam çubuk
+            BrokenUi.GlassScroll.Under = Glass.PaintUnder;
+            header.Dock = DockStyle.Top;
+            Controls.Add(header);
+            titleBar.ShowTitle = false;
+            titleBar.Dock = DockStyle.Top;
+            Controls.Add(titleBar);
             ResizeBegin += delegate { autoFit = false; };   // kullanıcı boyutlandırınca pencereye dokunma
 
             overlayTimer.Interval = 33;
@@ -126,7 +141,7 @@ namespace BrokenScreenResizer
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
-            Theme.DarkTitle(this);
+            Frame.Apply(this);
         }
 
         static int P(float v) { return Theme.P(v); }
@@ -176,7 +191,7 @@ namespace BrokenScreenResizer
             var l = new Label();
             l.Text = Upper(text);
             l.ForeColor = Theme.Sub;
-            l.BackColor = Theme.Bg;
+            l.BackColor = Color.Transparent;
             l.Font = new Font(Font.FontFamily, 8f, FontStyle.Bold);
             l.AutoSize = true;
             page.Controls.Add(l);
@@ -197,7 +212,7 @@ namespace BrokenScreenResizer
 
             logo = new PictureBox();
             logo.SizeMode = PictureBoxSizeMode.Zoom;
-            logo.BackColor = Theme.Bg;
+            logo.BackColor = Color.Transparent;
             logo.Image = Theme.Logo();
             page.Controls.Add(logo);
 
@@ -501,10 +516,24 @@ namespace BrokenScreenResizer
         }
 
         // Pencere boyutuna göre yerleşim. Kullanıcı boyutlandırmadıysa pencere içeriğe (ekrana sığdığı kadar) uyar.
+        // logo, ad ve dil/Hakkında düğmeleri sabit başlıkta (sayfayla birlikte oynamaz)
+        void SetupHeader()
+        {
+            header.Logo = logo.Image;
+            header.Title = lblTitle.Text;
+            header.Subtitle = lblSub.Text;
+            header.Font = Font;
+            logo.Visible = lblTitle.Visible = lblSub.Visible = false;
+            header.ClearActions();
+            header.AddAction(segLang, P(196));
+            header.Invalidate();
+        }
+
         void DoLayout()
         {
             if (inLayout || slider == null) return;
             inLayout = true;
+            bool resized = false;
             try
             {
                 Relayout();
@@ -512,16 +541,17 @@ namespace BrokenScreenResizer
                 {
                     var wa = Screen.FromRectangle(Bounds).WorkingArea;
                     int frameH = Height - ClientSize.Height;
-                    int want = Math.Max(P(320), Math.Min(page.Height, wa.Height - frameH));
+                    int want = Math.Max(P(320), Math.Min(page.Height + (ClientSize.Height - body.Parent.Height), wa.Height - frameH));
                     if (want != ClientSize.Height)
                     {
                         ClientSize = new Size(ClientSize.Width, want);
                         if (Bottom > wa.Bottom) Top = Math.Max(wa.Top, wa.Bottom - Height);
-                        Relayout();
+                        resized = true;
                     }
                 }
             }
             finally { inLayout = false; }
+            if (resized) BeginInvoke(new MethodInvoker(delegate { PerformLayout(); DoLayout(); }));   // pencere oturunca yeniden
         }
 
         // Kaydırma çubuğu çıkınca/kaybolunca genişlik değişir; yerleşim oturana kadar tekrarlanır
@@ -537,6 +567,11 @@ namespace BrokenScreenResizer
                 h = LayoutAt(cw);
             }
             page.Size = new Size(cw, h);
+            // içerik pencereden kısaysa dikeyde ortala; uzunsa üstten başlayıp kaydır
+            int top = 0;   // hep üstten başlar: sekme değişince başlık ve içerik kaymaz
+            var at = new Point(body.AutoScrollPosition.X, top + body.AutoScrollPosition.Y);
+            if (page.Location != at) page.Location = at;
+            DarkScroll.HideHorizontal(body);    // sayfa hep pencere genişliğinde; yatay çubuğa gerek yok
         }
 
         // Verilen genişliğe göre öğeleri yerleştirir; içerik yüksekliğini döndürür
@@ -550,21 +585,8 @@ namespace BrokenScreenResizer
             int margin = leftW >= P(520) ? P(26) : P(14);
             int x0 = margin + ox;
             int w = leftW - margin * 2;
-            int y = P(22);
-
-            // başlık; dar pencerede dil seçici alt satıra iner
-            bool langInline = w >= P(500);
-            int textW = Math.Max(P(100), w - P(58) - (langInline ? P(206) : 0));
-            logo.SetBounds(x0, y, P(44), P(44));
-            lblTitle.MaximumSize = new Size(textW, 0);
-            lblTitle.Location = new Point(x0 + P(56), y - P(3));
-            int titleH = lblTitle.GetPreferredSize(new Size(textW, 0)).Height;
-            lblSub.MaximumSize = new Size(textW, 0);
-            lblSub.Location = new Point(x0 + P(58), y - P(3) + titleH);
-            int subH = lblSub.GetPreferredSize(new Size(textW, 0)).Height;
-            y = Math.Max(y + P(68), lblSub.Top + subH + P(20));
-            if (langInline) segLang.SetBounds(x0 + w - P(196), P(29), P(196), P(30));
-            else { segLang.SetBounds(x0, y - P(6), Math.Min(w, P(240)), P(30)); y += P(30) + P(12); }
+            int y = P(18);
+            if (segLang.Parent != header) SetupHeader();
 
             segTab.SetBounds(x0, y - P(4), w, P(40)); y += P(40) + P(16);
 
@@ -2236,6 +2258,39 @@ namespace BrokenScreenResizer
             if (mirror != null) { StopMirror(); DisplayLayout.RestoreBackup(); Vdd.RemoveAll(); }
             overlay.Close();
             base.OnFormClosing(e);
+        }
+    }
+}
+
+namespace BrokenScreenResizer
+{
+    // Kaydırma çubuklarını koyu temaya alır (Windows 10 1809+ / 11)
+    static class DarkScroll
+    {
+        [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern int SetWindowTheme(System.IntPtr hwnd, string app, string idList);
+        [System.Runtime.InteropServices.DllImport("uxtheme.dll", EntryPoint = "#135")]
+        static extern int SetPreferredAppMode(int mode);
+        [System.Runtime.InteropServices.DllImport("uxtheme.dll", EntryPoint = "#133")]
+        static extern bool AllowDarkModeForWindow(System.IntPtr hwnd, bool allow);
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern bool ShowScrollBar(System.IntPtr hwnd, int bar, bool show);
+
+        public static void Apply(System.Windows.Forms.Control c)
+        {
+            try
+            {
+                // Windows 10 1809 öncesinde bu işlevler yok; hata yakalanır, çubuk açık renkte kalır
+                SetPreferredAppMode(1);                 // AllowDark
+                AllowDarkModeForWindow(c.Handle, true);
+                SetWindowTheme(c.Handle, "DarkMode_Explorer", null);
+            }
+            catch { }
+        }
+
+        public static void HideHorizontal(System.Windows.Forms.Control c)
+        {
+            try { if (c.IsHandleCreated) ShowScrollBar(c.Handle, 0, false); } catch { }
         }
     }
 }

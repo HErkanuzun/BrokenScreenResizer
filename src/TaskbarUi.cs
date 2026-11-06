@@ -127,10 +127,9 @@ namespace BrokenScreenResizer
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = Theme.Prep(e, BackColor);
+            var g = Theme.Prep(e, this);
             var all = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
-            Theme.Fill(g, all, Theme.P(12), Theme.Card);
-            Theme.Stroke(g, all, Theme.P(12), Theme.Border, 1);
+            Glass.Card(g, all, Theme.P(12), Color.Empty);
 
             var rs = Places();
             using (var big = new Font(Font.FontFamily, Font.Size * 1.9f, FontStyle.Bold))
@@ -248,10 +247,9 @@ namespace BrokenScreenResizer
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = Theme.Prep(e, BackColor);
+            var g = Theme.Prep(e, this);
             var r = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
-            Theme.Fill(g, r, Theme.P(12), Theme.Card);
-            Theme.Stroke(g, r, Theme.P(12), Theme.Border, 1);
+            Glass.Card(g, r, Theme.P(12), Color.Empty);
             using (var bold = new Font(Font, FontStyle.Bold))
             using (var small = new Font(Font.FontFamily, Font.Size - 0.5f))
             {

@@ -5,6 +5,12 @@ Türkçe özet için [README](README.md#sürüm-geçmişi).
 
 > **Version numbers were reorganized with v1.0.** Earlier releases were renumbered into the 0.x range; their previous numbers are shown in brackets.
 
+## [1.8] - 2026-11-06
+
+### Changed
+- Logo, name and the language / About buttons sit in a fixed header at the top, in the same place in every Broken app. They no longer move when you switch pages, and content always starts at the top instead of being centred vertically.
+- New design, the same across the whole Broken family: a soft colour background, glass cards and buttons, and the window frame in the same style (no white Windows title bar; minimize / maximize / close are drawn by the app). Snapping, resizing from the edges, shadow and rounded corners still work. Dialogs use the same frame.
+
 ## [1.7] - 2026-11-05
 
 Stable release. It also brings the Screen Multiplier (1.5) and Windows tweaks (1.6) out of preview.

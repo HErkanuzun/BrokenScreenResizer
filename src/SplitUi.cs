@@ -510,7 +510,7 @@ namespace BrokenScreenResizer
         // ---------------------------------------------------------------- çizim
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = Theme.Prep(e, BackColor);
+            var g = Theme.Prep(e, this);
             var s = ScreenRect();
             float bezel = Bezel;
 
@@ -714,7 +714,7 @@ namespace BrokenScreenResizer
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = Theme.Prep(e, BackColor);
+            var g = Theme.Prep(e, this);
             double total = Math.Max(1.0, (double)Monitor.Width * Monitor.Height);
 
             // çubuk
@@ -850,7 +850,7 @@ namespace BrokenScreenResizer
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = Theme.Prep(e, BackColor);
+            var g = Theme.Prep(e, this);
             using (var bold = new Font(Font.FontFamily, Font.Size, FontStyle.Bold))
             using (var small = new Font(Font.FontFamily, Font.Size - 1.5f))
             using (var tiny = new Font(Font.FontFamily, Font.Size - 2f, FontStyle.Bold))
@@ -994,10 +994,9 @@ namespace BrokenScreenResizer
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = Theme.Prep(e, BackColor);
+            var g = Theme.Prep(e, this);
             var panel = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
-            Theme.Fill(g, panel, Theme.P(14), Theme.Card);
-            Theme.Stroke(g, panel, Theme.P(14), Theme.Border, 1);
+            Glass.Card(g, panel, Theme.P(14), Color.Empty);
             float pad = Pad, w = Width - pad * 2;
 
             using (var head = new Font(Font.FontFamily, 8f, FontStyle.Bold))
