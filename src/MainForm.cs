@@ -10,7 +10,8 @@ namespace BrokenScreenResizer
     class MainForm : Form, ISurface
     {
         readonly TitleBar titleBar = new TitleBar();
-        protected override void WndProc(ref Message m) { if (!Frame.Handle(this, ref m, titleBar.Height)) base.WndProc(ref m); }
+        readonly AppHeader header = new AppHeader();
+        protected override void WndProc(ref Message m) { if (!Frame.Handle(this, ref m, titleBar.Height + header.Height)) base.WndProc(ref m); }
         protected override void OnActivated(EventArgs e) { base.OnActivated(e); titleBar.Invalidate(); }
         public void PaintSurface(Graphics g, Rectangle r) { Glass.Backdrop(g, ClientSize, Point.Empty, r); }
         protected override void OnPaintBackground(PaintEventArgs e) { PaintSurface(e.Graphics, e.ClipRectangle); }
@@ -112,6 +113,9 @@ namespace BrokenScreenResizer
             body.Resize += delegate { DoLayout(); };
             BrokenUi.GlassScroll.Attach(body, Theme.Bg, Theme.Accent);   // beyaz Windows çubuğu yerine koyu cam çubuk
             BrokenUi.GlassScroll.Under = Glass.PaintUnder;
+            header.Dock = DockStyle.Top;
+            Controls.Add(header);
+            titleBar.ShowTitle = false;
             titleBar.Dock = DockStyle.Top;
             Controls.Add(titleBar);
             ResizeBegin += delegate { autoFit = false; };   // kullanıcı boyutlandırınca pencereye dokunma
@@ -512,6 +516,19 @@ namespace BrokenScreenResizer
         }
 
         // Pencere boyutuna göre yerleşim. Kullanıcı boyutlandırmadıysa pencere içeriğe (ekrana sığdığı kadar) uyar.
+        // logo, ad ve dil/Hakkında düğmeleri sabit başlıkta (sayfayla birlikte oynamaz)
+        void SetupHeader()
+        {
+            header.Logo = logo.Image;
+            header.Title = lblTitle.Text;
+            header.Subtitle = lblSub.Text;
+            header.Font = Font;
+            logo.Visible = lblTitle.Visible = lblSub.Visible = false;
+            header.ClearActions();
+            header.AddAction(segLang, P(196));
+            header.Invalidate();
+        }
+
         void DoLayout()
         {
             if (inLayout || slider == null) return;
@@ -524,7 +541,7 @@ namespace BrokenScreenResizer
                 {
                     var wa = Screen.FromRectangle(Bounds).WorkingArea;
                     int frameH = Height - ClientSize.Height;
-                    int want = Math.Max(P(320), Math.Min(page.Height, wa.Height - frameH));
+                    int want = Math.Max(P(320), Math.Min(page.Height + (ClientSize.Height - body.Parent.Height), wa.Height - frameH));
                     if (want != ClientSize.Height)
                     {
                         ClientSize = new Size(ClientSize.Width, want);
@@ -551,7 +568,7 @@ namespace BrokenScreenResizer
             }
             page.Size = new Size(cw, h);
             // içerik pencereden kısaysa dikeyde ortala; uzunsa üstten başlayıp kaydır
-            int top = h < body.ClientSize.Height ? (body.ClientSize.Height - h) / 2 : 0;
+            int top = 0;   // hep üstten başlar: sekme değişince başlık ve içerik kaymaz
             var at = new Point(body.AutoScrollPosition.X, top + body.AutoScrollPosition.Y);
             if (page.Location != at) page.Location = at;
             DarkScroll.HideHorizontal(body);    // sayfa hep pencere genişliğinde; yatay çubuğa gerek yok
@@ -568,21 +585,8 @@ namespace BrokenScreenResizer
             int margin = leftW >= P(520) ? P(26) : P(14);
             int x0 = margin + ox;
             int w = leftW - margin * 2;
-            int y = P(22);
-
-            // başlık; dar pencerede dil seçici alt satıra iner
-            bool langInline = w >= P(500);
-            int textW = Math.Max(P(100), w - P(58) - (langInline ? P(206) : 0));
-            logo.SetBounds(x0, y, P(44), P(44));
-            lblTitle.MaximumSize = new Size(textW, 0);
-            lblTitle.Location = new Point(x0 + P(56), y - P(3));
-            int titleH = lblTitle.GetPreferredSize(new Size(textW, 0)).Height;
-            lblSub.MaximumSize = new Size(textW, 0);
-            lblSub.Location = new Point(x0 + P(58), y - P(3) + titleH);
-            int subH = lblSub.GetPreferredSize(new Size(textW, 0)).Height;
-            y = Math.Max(y + P(68), lblSub.Top + subH + P(20));
-            if (langInline) segLang.SetBounds(x0 + w - P(196), P(29), P(196), P(30));
-            else { segLang.SetBounds(x0, y - P(6), Math.Min(w, P(240)), P(30)); y += P(30) + P(12); }
+            int y = P(18);
+            if (segLang.Parent != header) SetupHeader();
 
             segTab.SetBounds(x0, y - P(4), w, P(40)); y += P(40) + P(16);
 
