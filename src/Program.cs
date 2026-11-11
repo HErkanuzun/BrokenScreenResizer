@@ -33,7 +33,9 @@ namespace BrokenScreenResizer
             signalThread.IsBackground = true;
             signalThread.Start();
 
-            form.RestoreActive();
+            // Windows ile başlarken (--tray) ayar, oturum açılışı sakinleşince uygulanır (v1.9)
+            if (startHidden) form.RestoreActiveAtStartup();
+            else form.RestoreActive();
 
             if (!startHidden) ShowForm();
         }

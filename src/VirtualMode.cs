@@ -369,6 +369,43 @@ namespace BrokenScreenResizer
         }
     }
 
+    // ------------------------------------------------------------------ Birleştirme bekçisi (v1.9)
+    // Sanal monitörün köşesinde 2×2 piksellik, neredeyse tam saydam, tıklamaları geçiren pencere.
+    // Bir oyun ya da video sanal monitörü tam kaplayınca Windows masaüstünü birleştirmeyi (DWM) bırakıp
+    // oyunun karelerini doğrudan ekrana verebilir ("independent flip"). Büyüteç birleştirilmiş masaüstünü
+    // kopyaladığı için ayna o zaman donar ya da saniyede 1-2 kareye düşer. Üstte görünen başka bir pencere
+    // olduğu sürece Windows birleştirmeye devam eder; bu pencere de onu sağlar. Gözle görülmez.
+    class KeeperForm : Form
+    {
+        public KeeperForm(Rectangle virt)
+        {
+            FormBorderStyle = FormBorderStyle.None;
+            ShowInTaskbar = false;
+            StartPosition = FormStartPosition.Manual;
+            TopMost = true;
+            BackColor = Color.Black;
+            Bounds = new Rectangle(virt.Right - 2, virt.Bottom - 2, 2, 2);
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                cp.ExStyle |= 0x80 | 0x80000 | 0x08000000 | 0x8 | 0x20; // TOOLWINDOW | LAYERED | NOACTIVATE | TOPMOST | TRANSPARENT
+                return cp;
+            }
+        }
+
+        protected override bool ShowWithoutActivation { get { return true; } }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            VNative.SetLayeredWindowAttributes(Handle, 0, 1, 2);   // 1/255 saydamlık: görünmez ama Windows için "görünür"
+        }
+    }
+
     // ------------------------------------------------------------------ Sanal monitör modunu yöneten sınıf
     // Ayna çizimi, dikey senkron bekleme ve fare/pencere kancaları ayrı iş parçacıklarında çalışır;
     // ana pencere ne yaparsa yapsın ayna akıcı kalır, fare de takılmaz.
@@ -509,9 +546,10 @@ namespace BrokenScreenResizer
             if (rects == null) return L.T("Monitörler bulunamadı.", "Monitors not found.");
 
             running = true;
+            Perf.Boost();
             renderThread = new Thread(RenderThread);
             renderThread.IsBackground = true;
-            renderThread.Priority = ThreadPriority.AboveNormal;
+            renderThread.Priority = ThreadPriority.Highest;
             renderThread.SetApartmentState(ApartmentState.STA);
             renderThread.Start();
             if (!renderReady.WaitOne(8000) || startError != null)
@@ -553,6 +591,8 @@ namespace BrokenScreenResizer
         }
 
         // ---------------------------------------------------------------- Ayna (kendi iş parçacığı)
+        readonly List<KeeperForm> keepers = new List<KeeperForm>();   // sadece çizim iş parçacığında kullanılır
+
         MirrorForm MakeForm(Rects r)
         {
             var f = new MirrorForm(r.Phys, r.Areas, r.Virt);
@@ -563,13 +603,36 @@ namespace BrokenScreenResizer
                 return null;
             }
             mirrorHwnd = f.Handle;
+            MakeKeepers(r);
             return f;
+        }
+
+        void MakeKeepers(Rects r)
+        {
+            CloseKeepers();
+            foreach (var v in r.Virt)
+            {
+                try
+                {
+                    var k = new KeeperForm(v);
+                    k.Show();
+                    keepers.Add(k);
+                }
+                catch { }
+            }
+        }
+
+        void CloseKeepers()
+        {
+            foreach (var k in keepers) { try { k.Close(); k.Dispose(); } catch { } }
+            keepers.Clear();
         }
 
         // Büyüteci ve ayna penceresini baştan kurar (program kapatılıp açılmış gibi)
         MirrorForm Rebuild(MirrorForm old, ref bool mag)
         {
             mirrorHwnd = IntPtr.Zero;
+            CloseKeepers();
             if (old != null) { try { old.Close(); old.Dispose(); } catch { } }
             if (mag) { try { VNative.MagUninitialize(); } catch { } }
             try { mag = VNative.MagInitialize(); } catch { mag = false; }
@@ -601,7 +664,8 @@ namespace BrokenScreenResizer
                 var sw = Stopwatch.StartNew();
                 var waitOn = new[] { vblank.SafeWaitHandle.DangerousGetHandle() };
                 double next = 0, nextTop = 0, lastRebuild = -100000, rebuildAt = -1, missingSince = -1, nextMissing = 0;
-                int skip = 0, badFrames = 0;
+                double statStart = 0, statMax = 0, statLogged = -100000;
+                int skip = 0, badFrames = 0, statFrames = 0;
 
                 while (running)
                 {
@@ -626,7 +690,7 @@ namespace BrokenScreenResizer
                         else if (missingSince < 0) missingSince = now;
                     }
                     // sanal monitör uzun süre geri gelmedi (ör. uyku sonrası sürücü yeniden başladı): tam onarım
-                    if (missingSince >= 0 && now - missingSince > 8000) { missingSince = -1; failed = true; }
+                    if (missingSince >= 0 && now - missingSince > 8000) { missingSince = -1; failed = true; Log.Write("mirror: virtual monitor missing for 8 s -> full repair"); }
 
                     if (rebuildNow) { rebuildNow = false; rebuildAt = now; }
                     if (rebuildSoon) { rebuildSoon = false; rebuildAt = now + 1000; }
@@ -637,6 +701,7 @@ namespace BrokenScreenResizer
                             rebuildAt = -1;
                             lastRebuild = now;
                             form = Rebuild(form, ref mag);
+                            Log.Write("mirror rebuilt" + (form == null ? " (FAILED)" : "") + (Perf.FullScreenApp ? " [full-screen app]" : ""));
                             lastRebuildTick = Environment.TickCount;
                             skip = 0;
                         }
@@ -681,13 +746,29 @@ namespace BrokenScreenResizer
                     next = t0 + Math.Max(period, cost * 2);
 
                     badFrames = ok ? 0 : badFrames + 1;
-                    if (badFrames > rs.Fps * 2) { badFrames = 0; rebuildAt = t0; }
+                    if (badFrames > rs.Fps * 2) { badFrames = 0; rebuildAt = t0; Log.Write("mirror: magnifier rejected the source, rebuilding"); }
+
+                    // Kare istatistiği: ayna belirgin şekilde yavaşladıysa günlüğe yazılır (en fazla 30 sn'de bir)
+                    statFrames++;
+                    if (cost > statMax) statMax = cost;
+                    if (t0 - statStart >= 10000)
+                    {
+                        double fps = statFrames * 1000.0 / (t0 - statStart);
+                        if (fps < rs.Fps / 2.0 && t0 - statLogged >= 30000)
+                        {
+                            statLogged = t0;
+                            Log.Write("mirror slow: " + fps.ToString("0.0") + " fps (target " + rs.Fps + "), slowest frame " + statMax.ToString("0") +
+                                      " ms, vsync=" + vsyncActive + (Perf.FullScreenApp ? " [full-screen app]" : ""));
+                        }
+                        statStart = t0; statFrames = 0; statMax = 0;
+                    }
 
                     if (t0 >= nextTop)
                     {
-                        // Başka "her zaman üstte" pencereler aynanın üstüne çıkmasın
-                        Win.SetWindowPos(form.Handle, VNative.HWND_TOPMOST, 0, 0, 0, 0,
-                            Win.SWP_NOSIZE | VNative.SWP_NOMOVE | Win.SWP_NOACTIVATE | VNative.SWP_ASYNCWINDOWPOS);
+                        // Başka "her zaman üstte" pencereler aynanın (ve bekçilerin) üstüne çıkmasın
+                        const uint topFlags = Win.SWP_NOSIZE | VNative.SWP_NOMOVE | Win.SWP_NOACTIVATE | VNative.SWP_ASYNCWINDOWPOS;
+                        Win.SetWindowPos(form.Handle, VNative.HWND_TOPMOST, 0, 0, 0, 0, topFlags);
+                        foreach (var k in keepers) Win.SetWindowPos(k.Handle, VNative.HWND_TOPMOST, 0, 0, 0, 0, topFlags);
                         nextTop = t0 + 1000;
                     }
                 }
@@ -701,6 +782,7 @@ namespace BrokenScreenResizer
             {
                 if (hiRes) { try { VNative.timeEndPeriod(1); } catch { } }
                 mirrorHwnd = IntPtr.Zero;
+                CloseKeepers();
                 if (form != null) { try { form.Close(); form.Dispose(); } catch { } }
                 if (mag) { try { VNative.MagUninitialize(); } catch { } }
                 renderReady.Set();
@@ -724,6 +806,10 @@ namespace BrokenScreenResizer
                 var rs = rects;
                 if (!running || locked || rs == null || mirrorHwnd == IntPtr.Zero) return;
                 if (now - lastRebuildTick < 2500 || now - quietUntil < 0) return;
+                // Tam ekran oyun/video öndeyken ekrandan piksel okunmaz: her okuma ekran kartını bir an bekletir
+                // (oyunda takılma) ve oyunun koyu/donuk sahneleri yanlış alarm verip aynayı oyun ortasında
+                // defalarca yeniden kurdurabiliyordu. Oyundan çıkınca denetim kaldığı yerden devam eder.
+                if (Perf.FullScreenApp) { whiteStrikes = 0; return; }
                 if (!LooksBroken(rs)) { whiteStrikes = 0; repairs = 0; return; }
                 if (++whiteStrikes < 2) return;
                 whiteStrikes = 0;
@@ -733,8 +819,13 @@ namespace BrokenScreenResizer
                     repairs = 0;
                     failed = true;
                     quietUntil = now + 30000;
+                    Log.Write("health: mirror still white/black after 2 rebuilds -> full repair");
                 }
-                else rebuildNow = true;
+                else
+                {
+                    rebuildNow = true;
+                    Log.Write("health: mirror looks white/black -> rebuild");
+                }
             }
             catch { }
             finally { Interlocked.Exchange(ref healthBusy, 0); }
@@ -841,7 +932,7 @@ namespace BrokenScreenResizer
                     if (MNative.D3DKMTWaitForVerticalBlankEvent(ref w) != 0)
                     {
                         vsyncActive = false;
-                        if (++errors > 20) return;   // bu sistemde çalışmıyor: zamanlayıcı kullanılır
+                        if (++errors > 20) { Log.Write("vsync wait unavailable, using timer"); return; }   // bu sistemde çalışmıyor: zamanlayıcı kullanılır
                         vsyncReopen = true;
                         Thread.Sleep(50);
                         continue;
@@ -1046,10 +1137,68 @@ namespace BrokenScreenResizer
         // Sanal monitörü fiziksel monitörün yerine koyan yeni düzeni hesaplar ve uygular.
         public static int Arrange(string physGdi, string virtGdi, int vw, int vh)
         {
+            bool changed;
+            return Arrange(physGdi, virtGdi, vw, vh, null, out changed);
+        }
+
+        // v1.9: baseline verilirse (programdan önceki düzenin yedeği) düzen ona göre hesaplanır, Windows'un o anki
+        // haline göre değil. Açılışta Windows sanal monitörü kendi hatırladığı bir yere koymuş ya da fiziksel monitörü
+        // önceki oturumdan kalma bir yerde tutuyor olabilir; o zaman o anki düzenden hesaplamak yanlış sonuç veriyordu.
+        // Düzen zaten doğruysa hiçbir şey değiştirilmez (changed = false, ekran kırpışmaz).
+        public static int Arrange(string physGdi, string virtGdi, int vw, int vh, List<LayoutEntry> baseline, out bool changed)
+        {
+            changed = false;
             var now = DisplayLayout.Capture();
+            var plan = PlanVirtual(Merge(now, baseline, virtGdi), physGdi, virtGdi, vw, vh);
+            if (plan == null) return -5;
+            if (Matches(plan, now)) return 0;
+            changed = true;
+            return DisplayLayout.Apply(plan);
+        }
+
+        // Ekran düzeni planlananla aynı mı (açılıştan sonra Windows düzeni değiştirdi mi diye bakmak için)
+        public static bool LayoutOk(string physGdi, string virtGdi, int vw, int vh, List<LayoutEntry> baseline)
+        {
+            var now = DisplayLayout.Capture();
+            var plan = PlanVirtual(Merge(now, baseline, virtGdi), physGdi, virtGdi, vw, vh);
+            return plan != null && Matches(plan, now);
+        }
+
+        static LayoutEntry Clone(LayoutEntry e)
+        {
+            return new LayoutEntry { Gdi = e.Gdi, X = e.X, Y = e.Y, W = e.W, H = e.H, Freq = e.Freq, Primary = e.Primary, Attached = e.Attached };
+        }
+
+        // Şu an bağlı olan ekranlar; yedekte açık görünenlerin yeri ve boyutu yedekten alınır
+        static List<LayoutEntry> Merge(List<LayoutEntry> now, List<LayoutEntry> baseline, string virtGdi)
+        {
+            var list = new List<LayoutEntry>();
+            foreach (var n in now)
+            {
+                var b = baseline != null && n.Gdi != virtGdi ? DisplayLayout.Find(baseline, n.Gdi) : null;
+                list.Add(Clone(b != null && b.Attached && b.W > 0 && b.H > 0 ? b : n));
+            }
+            return list;
+        }
+
+        static bool Matches(List<LayoutEntry> plan, List<LayoutEntry> now)
+        {
+            foreach (var e in plan)
+            {
+                if (!e.Attached) continue;
+                var n = DisplayLayout.Find(now, e.Gdi);
+                if (n == null || !n.Attached || n.X != e.X || n.Y != e.Y || n.W != e.W || n.H != e.H || n.Primary != e.Primary) return false;
+            }
+            foreach (var n in now)
+                if (n.Attached && DisplayLayout.Find(plan, n.Gdi) == null) return false;
+            return true;
+        }
+
+        static List<LayoutEntry> PlanVirtual(List<LayoutEntry> now, string physGdi, string virtGdi, int vw, int vh)
+        {
             var p = DisplayLayout.Find(now, physGdi);
             var v = DisplayLayout.Find(now, virtGdi);
-            if (p == null || v == null || !p.Attached) return -5;
+            if (p == null || v == null || !p.Attached) return null;
 
             int dW = p.W - vw, dH = p.H - vh;
             var list = new List<LayoutEntry>();
@@ -1087,7 +1236,7 @@ namespace BrokenScreenResizer
                 int ox = prim.X, oy = prim.Y;
                 foreach (var e in list) { e.X -= ox; e.Y -= oy; }
             }
-            return DisplayLayout.Apply(list);
+            return list;
         }
 
         // Ekran Çoğaltıcı: sanal monitörler, monitördeki bölgeleriyle aynı yerleşimde fiziksel monitörün yerini alır.

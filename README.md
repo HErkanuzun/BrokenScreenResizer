@@ -155,7 +155,7 @@ Broken Screen Resizer açık kaynaklıdır; aşağıdakilerin hepsi koddan doğr
 - **Yönetici izni istemez.** Tek istisna sanal monitör sürücüsünün kurulumu ve kaldırılmasıdır; Windows o anda izin sorar.
 - **Klavyeyi dinlemez.** Yazılım modu sadece fare imlecini bozuk alanın dışında tutmak için Windows'un fare kancasını kullanır.
 - **Neyi değiştirir?**
-  - Ayarlar: `%AppData%\BrokenScreenResizer\settings.ini`
+  - Ayarlar ve tanı günlüğü: `%AppData%\BrokenScreenResizer\settings.ini`, `log.txt`
   - "Windows ile başlat" açıksa: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\BrokenScreenResizer`
   - Sanal monitör yöntemi kullanıldıysa: sanal ekran sürücüsü, onu imzalayan sertifika (Güvenilen Kök ve Güvenilen Yayımcılar depolarında) ve `C:\ProgramData\BrokenScreenResizer\driver`
 - **Sürücü sertifikası:** Sürücü kendinden imzalı bir sertifikayla imzalanmıştır. Sertifika sadece *kod imzalama* için geçerlidir; web sitesi ya da e-posta trafiğine karışamaz. Özel anahtarı hiçbir zaman depoya ya da sürüme girmez. Kaldırma sırasında sertifika da silinir.
@@ -269,6 +269,8 @@ docs/         Diğer dillerde README ve görseller
 
 Ayrıntılar: [CHANGELOG.md](CHANGELOG.md) · Tüm sürümler: [Releases](https://github.com/HErkanuzun/BrokenScreenResizer/releases)
 
+- **v1.9** — Sanal monitör modunda ağır bir oyun açıkken aynanın donması ya da saniyede 1-2 kareye düşmesi düzeltildi. "Windows ile başlat" açıkken ayarın oturum açılışında bazen uygulanmaması düzeltildi. Tanı günlüğü eklendi (`%AppData%\BrokenScreenResizer\log.txt`).
+- **v1.8** — Broken ailesinin ortak cam tasarımı; logo, ad ve düğmeler her sayfada aynı yerde.
 - **v1.7** — Ekran düzeni: monitörlerin yerini program içinden sürükleyerek ayarla. Sanal monitör modunda beyaz kalan ayna kendini onarır; görünmeyen 3. ekrana düşen pencereler anında geri gelir. Ayna monitörün yenilenmesine (VSync) göre çizilir; oyunlarda daha akıcı. Ekran Çoğaltıcı ve Windows düzenlemeleri artık kararlı.
 - **v1.6 (önizleme)** — Windows düzenlemeleri: görev çubuğunu her monitörde istediğin kenara yasla (alt, üst, sol, sağ ya da çubuksuz). Ana monitörde Windows'un çubuğu, diğerlerinde gerekirse programın kendi çubuğu. Kararlı sürüm değildir.
 - **v1.5 (önizleme)** — Ekran Çoğaltıcı: büyük bir monitörü 8'e kadar ayrı ekrana böl. Sürükle ve it düzenleyici, şablonlar, piksel yoğunluğuna göre üç öneri. Sanal ekran sürücüsü 2.0. Kararlı sürüm değildir.
