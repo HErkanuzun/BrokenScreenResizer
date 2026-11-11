@@ -2095,25 +2095,162 @@ namespace BrokenScreenResizer
                 return;
             }
 
+            // v1.9: programdan önceki düzen, sanal monitör açılmadan yedeklenir. Sanal monitör açılınca Windows onu
+            // kendi hatırladığı bir düzene koyabiliyor; yedek o düzenden alınırsa yanlış olur.
+            if (!DisplayLayout.HasBackup) BackupWithoutOurs();
+
             // sanal monitörü (program kapanınca kapatılmıştı) yeniden aç
             string vg;
             string ve = Vdd.Ensure(vw, vh, PhysRefresh(phys), out vg);
-            if (ve != null) { Raise(ve); return; }
+            if (ve != null) { Log.Write("restore: virtual monitor " + vw + "x" + vh + " failed: " + ve); Raise(ve); return; }
 
-            var now = DisplayLayout.Capture();
-            var v = DisplayLayout.Find(now, vg);
-            if (v == null || !v.Attached || v.W != vw || v.H != vh)
-            {
-                if (!DisplayLayout.HasBackup) BackupWithoutVirtual(vg);
-                int lr = VirtualMirror.Arrange(phys, vg, vw, vh);
-                if (lr != 0) { DisplayLayout.RestoreBackup(); Raise(L.T("Sanal monitör düzeni kurulamadı.", "Could not set up the virtual monitor layout.")); return; }
-                Pause(1200);
-            }
+            // Düzen her seferinde yedeğe göre denetlenir; Windows'un o anki hali doğru görünse bile (ör. sanal monitör
+            // doğru boyutta ama yanlış yerde) yeniden kurulur. Zaten doğruysa hiçbir şey değişmez.
+            bool changed;
+            int lr = VirtualMirror.Arrange(phys, vg, vw, vh, DisplayLayout.LoadBackup(), out changed);
+            Log.Write("restore: phys=" + phys + " virt=" + vg + " " + vw + "x" + vh + " layout " + (lr != 0 ? "FAILED " + lr : changed ? "applied" : "already ok"));
+            if (lr != 0) { DisplayLayout.RestoreBackup(); Raise(L.T("Sanal monitör düzeni kurulamadı.", "Could not set up the virtual monitor layout.")); return; }
+            if (changed) Pause(1200);
+
             StopMirror();
             mirror = new VirtualMirror(phys, vg, cfg.Cuts);
             string err = mirror.Start();
-            if (err != null) { mirror = null; DisplayLayout.RestoreBackup(); Raise(err); }
-            else Wire(mirror);
+            if (err != null) { Log.Write("restore: mirror failed: " + err); mirror = null; DisplayLayout.RestoreBackup(); Raise(err); }
+            else
+            {
+                Wire(mirror);
+                guardPhys = phys; guardVirt = vg; guardW = vw; guardH = vh; guardMirror = mirror;
+            }
+        }
+
+        // Sanal monitörler hariç şu anki düzeni yedekler
+        static void BackupWithoutOurs()
+        {
+            var cap = DisplayLayout.Capture();
+            foreach (var e in cap)
+                if (e.Attached && Vdd.IsOurs(e.Gdi)) e.Attached = false;
+            DisplayLayout.SaveBackup(cap);
+        }
+
+        // ---------------- Windows ile başlarken (v1.9)
+        // Oturum açılırken ekran kartı sürücüsü, monitörler, sanal ekran sürücüsü ve görev çubuğu birkaç saniye içinde
+        // sırayla hazır oluyor; Windows bu sırada ekran düzenini kendisi de değiştirebiliyor. Önceden ayar hemen
+        // uygulanıyordu ve araya giren bu değişiklikler ayarı bozuyordu ("Geri al" + "Uygula" gerekiyordu).
+        // Şimdi her şey hazır olana ve ekran düzeni birkaç saniye sakin kalana kadar beklenir, ayar öyle uygulanır.
+        // Uygulanamazsa 10 sn arayla 3 kez denenir; uygulandıktan sonra da Windows düzeni bozarsa düzeltilir.
+        Timer startupTimer;
+        DateTime startupAt, lastDisplayChange = DateTime.Now, nextAttempt;
+        int startupAttempts, guardStep;
+        string lastBlocker, guardPhys, guardVirt;
+        int guardW, guardH;
+        VirtualMirror guardMirror;   // denetim sadece açılışta kurulan aynaya uygulanır (kullanıcı yeni ayar uygularsa durur)
+        bool quietNotices;
+        static readonly int[] GuardChecks = { 5, 15, 40 };   // açılıştan sonra düzenin denetlendiği saniyeler
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        static extern IntPtr FindWindow(string cls, string name);
+
+        public void RestoreActiveAtStartup()
+        {
+            Log.Write("autostart v" + AppInfo.Version + ": active=" + cfg.Active + " mode=" + cfg.ActiveMode + " taskbar=" + cfg.TaskbarActive);
+            startupAt = DateTime.Now;
+            nextAttempt = DateTime.Now;
+            startupTimer = new Timer();
+            startupTimer.Interval = 500;
+            startupTimer.Tick += delegate { StartupTick(); };
+            startupTimer.Start();
+        }
+
+        bool NeedsVdd { get { return cfg.Active && (cfg.ActiveMode == Mode.Virtual || cfg.ActiveMode == Mode.Split); } }
+
+        // Ayarı uygulamaya engel olan durum; null = hazır
+        string StartupBlocker()
+        {
+            if ((DateTime.Now - startupAt).TotalSeconds < 3) return "settling";
+            if (FindWindow("Shell_TrayWnd", null) == IntPtr.Zero) return "taskbar not ready";
+            if ((DateTime.Now - lastDisplayChange).TotalSeconds < 3) return "display settings changing";
+            if (!cfg.Active) return null;
+            string path = cfg.ActiveMode == Mode.Split ? cfg.SplitMonitor : cfg.MonitorPath;
+            bool found = false;
+            try { foreach (var m in DisplayConfig.GetMonitors()) if (m.DevicePath == path) found = true; } catch { }
+            if (!found) return "monitor not connected yet";
+            if (NeedsVdd && !(Vdd.Installed && Vdd.AdapterReady)) return "virtual display driver not ready";
+            return null;
+        }
+
+        bool DisplayRestoreFailed
+        {
+            get
+            {
+                if (!cfg.Active) return false;
+                if (cfg.ActiveMode == Mode.Virtual || cfg.ActiveMode == Mode.Split) return mirror == null;
+                if (cfg.ActiveMode == Mode.Software) return shield == null;
+                return false;
+            }
+        }
+
+        void StartupTick()
+        {
+            if (busy) return;
+            var now = DateTime.Now;
+
+            // ayar uygulandı: Windows düzeni sonradan değiştirdi mi?
+            if (startupAttempts > 0 && !DisplayRestoreFailed)
+            {
+                if (guardStep >= GuardChecks.Length || mirror == null || mirror != guardMirror || mirror.IsSplit) { StopStartup(); return; }
+                if ((now - nextAttempt).TotalSeconds < GuardChecks[guardStep]) return;
+                guardStep++;
+                if (!VirtualMirror.LayoutOk(guardPhys, guardVirt, guardW, guardH, DisplayLayout.LoadBackup()))
+                {
+                    bool changed;
+                    int r = VirtualMirror.Arrange(guardPhys, guardVirt, guardW, guardH, DisplayLayout.LoadBackup(), out changed);
+                    Log.Write("startup guard: Windows changed the layout, set again (" + (r == 0 ? "ok" : "error " + r) + ")");
+                    mirror.Refresh();
+                }
+                return;
+            }
+
+            if (now < nextAttempt) return;
+            double waited = (now - startupAt).TotalSeconds;
+            string why = StartupBlocker();
+            if (why != null && waited < 90)
+            {
+                if (why != lastBlocker) { lastBlocker = why; Log.Write("autostart waiting: " + why); }
+                return;
+            }
+
+            startupAttempts++;
+            Log.Write("autostart: restoring (attempt " + startupAttempts + ") after " + waited.ToString("0.0") + " s" +
+                      (why != null ? ", gave up waiting for: " + why : ""));
+            // son denemeye kadar hata balonları gösterilmez (sadece günlüğe yazılır)
+            quietNotices = startupAttempts < 3;
+            try
+            {
+                RefreshMonitors();
+                RestoreDisplay();
+            }
+            finally { quietNotices = false; }
+            if (startupAttempts == 1) RestoreTaskbar();
+            RefreshMonitors();
+
+            if (DisplayRestoreFailed && startupAttempts < 3)
+            {
+                Log.Write("autostart: not restored, retrying in 10 s");
+                nextAttempt = now.AddSeconds(10);
+                return;
+            }
+            Log.Write("autostart: " + (DisplayRestoreFailed ? "could not restore" : "restored"));
+            if (DisplayRestoreFailed) { StopStartup(); return; }
+            nextAttempt = DateTime.Now;   // düzen denetimleri buradan sayılır
+            guardStep = 0;
+        }
+
+        void StopStartup()
+        {
+            if (startupTimer == null) return;
+            startupTimer.Stop();
+            startupTimer.Dispose();
+            startupTimer = null;
         }
 
         // Aynanın bildirimleri: kendini onaramazsa ekran düzeni baştan kurulur (programı kapatıp açmak gibi)
@@ -2172,12 +2309,15 @@ namespace BrokenScreenResizer
 
         void Raise(string msg)
         {
+            Log.Write("notice: " + msg.Replace("\n", " "));
+            if (quietNotices) return;
             var h = Notify;
             if (h != null) h(msg);
         }
 
         void OnDisplayChanged(object sender, EventArgs e)
         {
+            lastDisplayChange = DateTime.Now;
             if (busy || !IsHandleCreated) return;
             BeginInvoke((MethodInvoker)delegate { if (!busy) RefreshMonitors(); });
         }

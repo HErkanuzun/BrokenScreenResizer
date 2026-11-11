@@ -145,7 +145,7 @@ Broken Screen Resizer is open source; everything below can be checked in the cod
 - **No administrator rights.** The only exception is installing or removing the virtual monitor driver; Windows asks for permission at that moment.
 - **No keyboard monitoring.** Software mode uses a Windows mouse hook only to keep the pointer out of the broken area.
 - **What it changes:**
-  - Settings: `%AppData%\BrokenScreenResizer\settings.ini`
+  - Settings and diagnostic log: `%AppData%\BrokenScreenResizer\settings.ini`, `log.txt`
   - If "Start with Windows" is on: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\BrokenScreenResizer`
   - If the virtual monitor method was used: the virtual display driver, the certificate that signs it (in the Trusted Root and Trusted Publishers stores) and `C:\ProgramData\BrokenScreenResizer\driver`
 - **About the driver certificate:** the driver is signed with a self-signed certificate that is valid for *code signing* only, so it can't intercept websites or email. Its private key never goes into the repository or a release. Uninstalling removes the certificate too.
@@ -245,6 +245,8 @@ docs/         READMEs in other languages and images
 
 Details: [CHANGELOG.md](../CHANGELOG.md) · All releases: [Releases](https://github.com/HErkanuzun/BrokenScreenResizer/releases)
 
+- **v1.9** — Fixed the virtual monitor mirror freezing or dropping to 1–2 fps while a heavy game is running. Fixed the setting sometimes not being applied at sign-in with "Start with Windows" on. Adds a diagnostic log (`%AppData%\BrokenScreenResizer\log.txt`).
+- **v1.8** — The Broken family's shared glass design; logo, name and buttons in the same place on every page.
 - **v1.7** — Display layout: arrange your monitors by dragging them inside the app. In virtual monitor mode a mirror that turns white repairs itself, and windows that land on the hidden third screen come back at once. The mirror is drawn in sync with the monitor (VSync), smoother in games. Screen Multiplier and Windows tweaks are now stable.
 - **v1.6 (preview)** — Windows tweaks: dock the taskbar to any edge on each monitor (bottom, top, left, right or none). The Windows taskbar on the main monitor, the app's own taskbar on the others when needed. Not a stable release.
 - **v1.5 (preview)** — Screen Multiplier: split a large monitor into up to 8 separate screens. Drag-and-push editor, templates, three recommendations based on pixel density. Virtual display driver 2.0. Not a stable release.

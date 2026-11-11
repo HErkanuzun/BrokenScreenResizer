@@ -5,6 +5,21 @@ Türkçe özet için [README](README.md#sürüm-geçmişi).
 
 > **Version numbers were reorganized with v1.0.** Earlier releases were renumbered into the 0.x range; their previous numbers are shown in brackets.
 
+## [1.9] - 2026-11-11
+
+### Fixed
+- **Virtual monitor mirror freezing or dropping to 1–2 fps while a game runs.**
+  - When a game or video covered the whole virtual monitor, Windows could stop composing that screen and hand the game's frames straight to the display ("independent flip"). The mirror copies the composed desktop, so it stopped getting new frames. A 2×2-pixel, practically invisible, click-through window now sits in the corner of each virtual monitor, so Windows keeps composing it.
+  - The app now asks Windows for high GPU scheduling priority and above-normal CPU priority while the mirror runs (no administrator rights needed), so a game using 100 % of the graphics card can't starve the mirror. The mirror thread runs at the highest thread priority.
+  - The white/black mirror check no longer reads pixels from the screen while a full-screen game or video is in front. Each read briefly stalled the graphics card, and dark or frozen game scenes could trigger repeated mirror rebuilds in the middle of a game.
+- **"Start with Windows" sometimes left the monitor unchanged at sign-in** (Revert + Apply fixed it).
+  - At sign-in the app now waits until the taskbar, the monitor, the virtual display driver and the display layout are ready and the layout has been quiet for 3 seconds (at most 90 seconds), then applies the setting. If that fails it tries again twice, 10 seconds apart, and shows an error only after the last try.
+  - The layout is always computed from the saved original layout instead of Windows' current one, and the saved layout is taken before the virtual monitor appears. Windows can move a newly appearing virtual monitor to a remembered position; before, a virtual monitor of the right size in the wrong place was treated as already set up.
+  - For 40 seconds after sign-in the app checks whether Windows changed the layout again and puts it back.
+
+### Added
+- Diagnostic log at `%AppData%\BrokenScreenResizer\log.txt` (max 256 KB, stays on this computer): sign-in restore steps, mirror rebuilds and slow mirror frames.
+
 ## [1.8] - 2026-11-06
 
 ### Changed
